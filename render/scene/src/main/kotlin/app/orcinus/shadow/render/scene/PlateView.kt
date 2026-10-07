@@ -25,6 +25,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,8 +35,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.areAnyPressed
+import androidx.compose.ui.input.pointer.isAltPressed
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
+import androidx.compose.ui.input.pointer.isTertiaryPressed
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.layout
@@ -125,7 +138,10 @@ data class VolumeScaleFrame(
  * [gizmo] shows on the selected object, and dragging its grabbers manipulates
  * the object. One finger elsewhere orbits, two fingers pan and pinch to zoom
  * and, twisted, turn the view about the vertical, and a double tap on empty
- * space returns to the plate view.
+ * space returns to the plate view. A mouse works as on the desktop: the left
+ * button picks and turns the view, the middle and right buttons pan, a right
+ * click opens the menu a held finger opens, the wheel zooms, and what the
+ * pointer rests on shows as the desktop shows it hovered.
  *
  * [plate] is the engine's description of the plate, null until it arrives;
  * [objects] are the plate's objects, painted with the filament colour, and
@@ -365,6 +381,18 @@ fun PlateView(
      * of the copy at [index] changed by [change] in the world; the app places it.
      */
     onPlaceVolume: (index: Int, change: Transform3, manipulation: VolumeManipulation) -> Unit = { _, _, _ -> },
+    /**
+     * A press of the view, by a finger or a mouse button, before the view
+     * takes it: GLCanvas3D::on_mouse() takes the keyboard to the canvas on a
+     * button down (m_canvas->SetFocus()).
+     */
+    onPress: () -> Unit = {},
+    /**
+     * GLGizmosManager::on_mouse_wheel(), and the assembly view's: a turn of the
+     * wheel with Ctrl or Alt held, which the open tool takes (true) before the
+     * view zooms (false).
+     */
+    onToolWheel: (ToolWheel) -> Boolean = { false },
 ) {
     // OpenGLManager::create_wxglcanvas(): the samples are chosen with the
     // surface, so another count builds the view anew.
@@ -732,6 +760,10 @@ fun PlateView(
         val edgePx = with(LocalDensity.current) { GESTURE_EDGE.toPx() }
         // The 3D navigator, which the view draws and takes the touches of where the page placed it.
         val navigatorInput = remember(controller) { NavigatorInput(controller) }
+        val press = rememberUpdatedState(onPress)
+        val toolWheel = rememberUpdatedState(onToolWheel)
+        // The hand that holds the scene while a mouse button pans it.
+        val panning by controller.panning.collectAsState()
         var viewOrigin by remember { mutableStateOf<Offset?>(null) }
         val navigatorSlot = camera?.navigatorSlot
         val navigatorSquare = navigatorSlot?.let { slot -> viewOrigin?.let { slot.bounds.translate(-it) } }
@@ -748,7 +780,11 @@ fun PlateView(
                 Modifier
                     .fillMaxSize()
                     .semantics { this.contentDescription = contentDescription }
-                    .pointerInput(surface) { detectPlateGestures(controller, navigatorInput, touchSlop, doubleTapTimeout, longPressTimeout, edgePx) },
+                    .pointerInput(surface) {
+                        detectPlateGestures(controller, navigatorInput, touchSlop, doubleTapTimeout, longPressTimeout, edgePx) { press.value() }
+                    }
+                    .pointerInput(surface) { observeMouse(controller, touchSlop) { toolWheel.value(it) } }
+                    .pointerHoverIcon(if (panning) PointerIcon(android.view.PointerIcon.TYPE_GRABBING) else PointerIcon.Default),
             )
             SelectionRectangle(controller, colors.accent)
             PaintCursorOverlay(controller)
@@ -932,6 +968,26 @@ class PlateViewCamera {
 
     /** Where the camera stands, where it looks and whether in perspective (Camera::get_position(), get_dir_forward()). */
     fun eye(): CameraEye? = controller?.eye()
+
+    /** GLCanvas3D::_update_camera_zoom(1.0) of 'I', or (-1.0) of 'O'. */
+    fun zoomStep(zoomIn: Boolean) {
+        controller?.zoomStep(if (zoomIn) 1.0 else -1.0)
+    }
+
+    /**
+     * The arrow keys (TranslationProcessor): the selection moves by [x] and
+     * [y] steps of 10 mm, 1 mm when [fine], along the camera's axes with
+     * [cameraSpace]; false when nothing moves.
+     */
+    fun moveSelection(x: Int, y: Int, fine: Boolean, cameraSpace: Boolean): Boolean = controller?.keyMove(x, y, fine, cameraSpace) == true
+
+    /** Page Up and Page Down: the selection turns by 45° about Z; false when nothing turns. */
+    fun rotateSelection(counterclockwise: Boolean): Boolean = controller?.keyRotate(counterclockwise) == true
+
+    /** The arrow or page key let go: what the keys did is placed (do_move(), do_rotate()). */
+    fun endKeyManipulation() {
+        controller?.endKeyManipulation()
+    }
 }
 
 /** The camera's position and forward direction, in world coordinates, and whether it looks in perspective. */
@@ -984,12 +1040,20 @@ private suspend fun PointerInputScope.detectPlateGestures(
     doubleTapTimeoutMillis: Long,
     longPressTimeoutMillis: Long,
     edgePx: Float,
+    onPress: () -> Unit,
 ) {
     var lastTapUptime = 0L
     var lastObjectTapUptime = 0L
+    val clicks = MouseClicks()
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = true)
+        if (down.type == PointerType.Mouse) {
+            onPress()
+            mouseGesture(controller, navigator, down, touchSlop, doubleTapTimeoutMillis, clicks)
+            return@awaitEachGesture
+        }
         if (down.position.x < edgePx) return@awaitEachGesture
+        onPress()
         if (with(navigator) { handle(down) }) return@awaitEachGesture
         down.consume()
         val pressedObject = controller.press(down.position.x, down.position.y, touchSlop * GRABBER_TOUCH_SLOPS)
@@ -1121,6 +1185,153 @@ private suspend fun PointerInputScope.detectPlateGestures(
 
 private fun Offset.getDistance() = hypot(x, y)
 
+/** A turn of the mouse wheel, up (away from the user) or down, and the modifiers held with it (GLGizmosManager::on_mouse_wheel()). */
+data class ToolWheel(val up: Boolean, val ctrl: Boolean, val alt: Boolean, val shift: Boolean)
+
+/** When the left button last clicked the view, on empty space or on an object, for the double click. */
+private class MouseClicks {
+    var empty = 0L
+    var onObject = 0L
+}
+
+/**
+ * GLCanvas3D::on_mouse() for a mouse, whose buttons do what they do on the
+ * desktop with the default left_mouse_drag_action (rotate) and the middle's
+ * and right's (pan): the left button picks, moves what it pressed, or turns
+ * the view over empty space or with a tool open, and with Shift draws the
+ * selection rectangle, with Ctrl adds a copy to the selection or takes it
+ * out; the middle and right buttons pan; the right button let go where it
+ * pressed opens the context menu a finger held there opens, and a double
+ * click is on_mouse()'s LeftDClick.
+ */
+private suspend fun AwaitPointerEventScope.mouseGesture(
+    controller: PlateViewController,
+    navigator: NavigatorInput,
+    down: PointerInputChange,
+    slop: Float,
+    doubleClickMillis: Long,
+    clicks: MouseClicks,
+) {
+    val buttons = currentEvent.buttons
+    val modifiers = currentEvent.keyboardModifiers
+    if (!buttons.isPrimaryPressed) {
+        // The middle and right buttons pan the view (is_camera_pan()); the right one, let go unmoved, asks for the menu.
+        down.consume()
+        val right = buttons.isSecondaryPressed
+        var last = down.position
+        var travelled = 0f
+        var panned = false
+        while (true) {
+            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+            change.consume()
+            if (!change.pressed) break
+            val delta = change.position - last
+            last = change.position
+            travelled += delta.getDistance()
+            if (panned || travelled > slop) {
+                if (!panned) controller.setPanning(true)
+                panned = true
+                controller.pan(delta.x, delta.y)
+            }
+        }
+        controller.setPanning(false)
+        // m_mouse.ignore_right_up after a pan.
+        if (right && !panned) controller.contextClick(down.position.x, down.position.y, slop)
+        return
+    }
+    if (with(navigator) { handle(down) }) return
+    down.consume()
+    val ctrl = modifiers.isCtrlPressed
+    // GLSelectionRectangle::start_dragging() of a left press with Shift, over an object too.
+    val rectangleOnly = modifiers.isShiftPressed && controller.drawsRectangle(shift = true)
+    val pressedObject = !rectangleOnly && controller.pressWithKeys(down.position.x, down.position.y, slop, additive = ctrl)
+    var last = down.position
+    var travelled = 0f
+    var dragging = false
+    var rectangle = false
+    while (true) {
+        val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+        change.consume()
+        if (!change.pressed) break
+        val delta = change.position - last
+        last = change.position
+        travelled += delta.getDistance()
+        if (!dragging && travelled <= slop) continue
+        when {
+            rectangleOnly -> {
+                if (!rectangle) controller.startRectangle(down.position.x, down.position.y)
+                rectangle = true
+                controller.dragRectangle(change.position.x, change.position.y)
+            }
+            controller.moving -> controller.moveTo(change.position.x, change.position.y)
+            // is_camera_rotate(): over empty space, or with a gizmo open, the left button turns the view.
+            dragging && (!pressedObject || controller.toolOpen) -> controller.rotate(delta.x, delta.y)
+        }
+        dragging = true
+    }
+    controller.endMove()
+    // _update_selection_from_hover(): the rectangle with Shift alone takes the place of the selection.
+    if (rectangle) controller.finishRectangle(replace = !ctrl)
+    if (dragging || rectangleOnly) return
+    val now = down.uptimeMillis
+    if (!pressedObject) {
+        if (controller.isCutting) controller.tapCut(down.position.x, down.position.y)
+        // A left up over empty space deselects all, but with Ctrl or a tool holding its object.
+        if (!controller.isPainting && !controller.isCutting && !controller.isEditingLayers && !controller.isMeasuring && !controller.isBrimEars) {
+            if (!ctrl) controller.clearSelection()
+            controller.selectPlateAt(down.position.x, down.position.y)
+        }
+        if (now - clicks.empty <= doubleClickMillis) {
+            controller.doubleClicked()
+            clicks.empty = 0L
+        } else {
+            clicks.empty = now
+        }
+        clicks.onObject = 0L
+    } else {
+        // LeftDClick on a volume: the settings switch to the object, and a text or an SVG opens its tool.
+        if (now - clicks.onObject <= doubleClickMillis) {
+            controller.doubleClicked()
+            controller.doubleTap(down.position.x, down.position.y)
+            clicks.onObject = 0L
+        } else {
+            clicks.onObject = now
+        }
+        clicks.empty = 0L
+    }
+}
+
+/**
+ * GLCanvas3D::on_mouse_wheel() and on_mouse()'s Moving for a mouse: the wheel
+ * zooms, unless the open tool takes it with Ctrl or Alt held ([toolWheel]),
+ * and the pointer moving with no button down shows what is under it
+ * (_picking_pass()); it leaving the view, nothing.
+ */
+private suspend fun PointerInputScope.observeMouse(controller: PlateViewController, slop: Float, toolWheel: (ToolWheel) -> Boolean) {
+    awaitPointerEventScope {
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull() ?: continue
+            when (event.type) {
+                PointerEventType.Scroll -> {
+                    // A wheel turned away from the user scrolls up, which Compose gives as a negative y.
+                    val rotation = -change.scrollDelta.y
+                    // Ignore the wheel events if the middle button is pressed.
+                    if (rotation != 0f && !event.buttons.isTertiaryPressed) {
+                        val keys = event.keyboardModifiers
+                        val wheel = ToolWheel(up = rotation > 0f, ctrl = keys.isCtrlPressed, alt = keys.isAltPressed, shift = keys.isShiftPressed)
+                        if (!((wheel.ctrl || wheel.alt) && toolWheel(wheel))) controller.wheelZoom(rotation, change.position.x, change.position.y)
+                    }
+                    change.consume()
+                }
+                PointerEventType.Move, PointerEventType.Enter ->
+                    if (change.type == PointerType.Mouse && !event.buttons.areAnyPressed) controller.hover(change.position, slop)
+                PointerEventType.Exit -> if (change.type == PointerType.Mouse) controller.hover(null, slop)
+            }
+        }
+    }
+}
+
 /** The angle, clockwise on the screen and within ±π, that turns [from] to [to]. */
 private fun twistAngle(from: Offset, to: Offset): Double {
     val angle = atan2(to.y.toDouble(), to.x.toDouble()) - atan2(from.y.toDouble(), from.x.toDouble())
@@ -1227,7 +1438,36 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * but not while a painting tool, the cut or the assembly view holds the canvas.
      */
     val drawsRectangle: Boolean
-        get() = selectionMode && assembly == null && !painting && cut == null && measure == null && brimEars == null && !isEditingLayers
+        get() = drawsRectangle(shift = false)
+
+    /** [drawsRectangle] with Shift held on a keyboard, which the selection mode stands in for. */
+    fun drawsRectangle(shift: Boolean): Boolean =
+        (selectionMode || shift) && assembly == null && !painting && cut == null && measure == null && brimEars == null && !isEditingLayers
+
+    /** Ctrl held with a mouse's left press, which adds a copy to the selection or takes it out as the selection mode does. */
+    private var keyAdditive = false
+
+    /** [press] of a mouse's left button, with Ctrl held when [additive]. */
+    fun pressWithKeys(x: Float, y: Float, grabberRadius: Float, additive: Boolean): Boolean {
+        keyAdditive = additive
+        try {
+            return press(x, y, grabberRadius)
+        } finally {
+            keyAdditive = false
+        }
+    }
+
+    /** A mouse button pans the view, which shows the hand that holds it. */
+    private val panningState = MutableStateFlow(false)
+    val panning: StateFlow<Boolean> = panningState.asStateFlow()
+
+    fun setPanning(value: Boolean) {
+        panningState.value = value
+    }
+
+    /** GLGizmosManager::get_current() != nullptr: a tool holds the canvas, so the left button turns the view over its object too. */
+    val toolOpen: Boolean
+        get() = gizmo != null || painting || cut != null || measure != null || brimEars != null || meshBoolean != null || textDrag != null
     private var highlightedVolumes: Set<String> = emptySet()
 
     /** The selected volume's sphere in the world, which the rotation gizmo turns it about; null until known. */
@@ -1833,6 +2073,9 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         if (paintCursor == cursor) return
         paintCursor = cursor
         clearPaintCursor()
+        hoverPosition?.takeIf { painting && !paintingStroke }?.let { at ->
+            showPaintCursor(at.x, at.y, camera.mouseRay(at.x.toDouble(), at.y.toDouble())?.let(::paintedHit))
+        }
         invalidate()
     }
 
@@ -1977,6 +2220,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     fun setGizmo(gizmo: PlateGizmo?) {
         if (this.gizmo == gizmo) return
         this.gizmo = gizmo
+        hoveredGrabber = null
+        hoveredFace = null
         if (drag != null && drag !is ObjectDrag) drag = null
         invalidate()
     }
@@ -2096,12 +2341,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return false
             // The sphere is 7.5 pixels wide on the desktop; a fingertip takes it from further.
             val radius = maxOf(MEASURE_SPHERE_RADIUS * pixel(), grabberRadius / camera.zoom)
-            val direction = ray.unitVector()
-            val onSphere = measureSpheres(open.measurement).any { center ->
-                val along = (center - ray.a).dot(direction)
-                along >= 0.0 && (center - ray.a - direction * along).norm() <= radius
-            }
-            if (!onSphere && objects.none { it.index != WIPE_TOWER_INDEX && it.raycast(ray) != null }) return false
+            if (!onMeasured(open, ray, radius)) return false
             measureRay = ray
             measureRadius = radius
             onMeasure(measureTouch(ray, select = false))
@@ -2202,7 +2442,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             drag = null
             return true
         }
-        if (selectionMode && assembly == null && volume.index != WIPE_TOWER_INDEX) {
+        if ((selectionMode || keyAdditive) && assembly == null && volume.index != WIPE_TOWER_INDEX) {
             // GLCanvas3D::on_mouse() for a Ctrl click: another copy joins the
             // selection, and the finger moves the whole selection. A selected
             // copy leaves it once the finger lets go where it pressed, so a long
@@ -2828,6 +3068,183 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         val scale = 1.0 / camera.zoom
         camera.setTarget(camera.target - camera.dirRight() * (dx * scale) + camera.dirUp() * (dy * scale))
         invalidate()
+    }
+
+    /** Over the measured volumes, or within [radius] millimetres of a selection's sphere. */
+    private fun onMeasured(open: MeasureView, ray: Line3, radius: Double): Boolean {
+        val direction = ray.unitVector()
+        val onSphere = measureSpheres(open.measurement).any { center ->
+            val along = (center - ray.a).dot(direction)
+            along >= 0.0 && (center - ray.a - direction * along).norm() <= radius
+        }
+        return onSphere || objects.any { it.index != WIPE_TOWER_INDEX && it.raycast(ray) != null }
+    }
+
+    /**
+     * GLCanvas3D::on_mouse_wheel(): the wheel's [rotation] in notches,
+     * Camera::update_zoom() of it, about the view's centre or, with "Zoom to
+     * mouse position", about the pointer at ([x], [y]).
+     */
+    fun wheelZoom(rotation: Float, x: Float, y: Float) = zoom(updatedZoom(rotation.toDouble()).toFloat(), x, y)
+
+    /** GLCanvas3D::_update_camera_zoom() of 'I' (1) and 'O' (-1), about the view's centre. */
+    fun zoomStep(delta: Double) {
+        camera.setZoom(camera.zoom * updatedZoom(delta))
+        invalidate()
+    }
+
+    /** Camera::update_zoom(): how much [delta] notches multiply the zoom, four at most (ZoomUnit). */
+    private fun updatedZoom(delta: Double): Double = 1.0 / (1.0 - delta.coerceIn(-MAX_ZOOM_NOTCHES, MAX_ZOOM_NOTCHES) * ZOOM_UNIT)
+
+    /** Where the mouse rests over the view with no button down; null off it. */
+    private var hoverPosition: Offset? = null
+
+    /** GLGizmoBase::m_hover_id of the move, rotate or scale gizmo's grabber, and of the flatten gizmo's plane. */
+    private var hoveredGrabber: Int? = null
+    private var hoveredFace: Int? = null
+
+    /** The measuring and brim ears tools show what the mouse is over. */
+    private var hoveringTool = false
+
+    /**
+     * GLCanvas3D::_picking_pass() and the gizmos' Moving events as the mouse
+     * moves at [at] with no button down, [radius] pixels about it picking a
+     * grabber: the grabber or the plane under it in its hover colour, the
+     * brush of a painting tool where it would paint, and the feature or the ear
+     * the measuring and brim ears tools would take; null as it leaves the view.
+     */
+    fun hover(at: Offset?, radius: Float) {
+        hoverPosition = at
+        if (drag != null || paintingStroke || measureRay != null || brimRay != null) return
+        val ray = at?.let { camera.mouseRay(it.x.toDouble(), it.y.toDouble()) }
+        val open = measure
+        val ears = brimEars
+        when {
+            open != null -> {
+                measureRadius = maxOf(MEASURE_SPHERE_RADIUS * pixel(), radius / camera.zoom)
+                if (ray != null && onMeasured(open, ray, measureRadius)) {
+                    hoveringTool = true
+                    onMeasure(measureTouch(ray, select = false))
+                } else if (hoveringTool) {
+                    hoveringTool = false
+                    onMeasure(MeasureTouch.Leave)
+                }
+            }
+            ears != null -> {
+                // gizmo_event(Moving): the ear where the mouse is over the copy's model parts.
+                val plane = paintSectionPlane?.takeIf { (paintSection?.position ?: 0.0) > 0.0 }
+                val clipped = { point: Vec3 -> plane != null && plane.first.dot(point) > plane.second }
+                if (ray != null && objects.any { it.index == brimEarsIndex && !it.modifier && it.unproject(ray, true, clipped) != null }) {
+                    hoveringTool = true
+                    onBrimEars(BrimEarsTouch.Explore(ray.a.toVector(), (ray.b - ray.a).toVector()))
+                } else if (hoveringTool) {
+                    hoveringTool = false
+                    onBrimEars(BrimEarsTouch.Leave)
+                }
+            }
+            painting -> {
+                if (at == null) clearPaintCursor() else showPaintCursor(at.x, at.y, ray?.let(::paintedHit))
+                invalidate()
+            }
+            else -> {
+                val grabber = if (at != null && (gizmo == PlateGizmo.MOVE || gizmo == PlateGizmo.ROTATE || gizmo == PlateGizmo.SCALE)) {
+                    grabberAt(at.x.toDouble(), at.y.toDouble(), radius.toDouble())?.second
+                } else {
+                    null
+                }
+                val face = if (ray != null && gizmo == PlateGizmo.LAY_ON_FACE) selectedTarget()?.let { layOnFace.faceAt(it.world, ray)?.first } else null
+                if (grabber != hoveredGrabber || face != hoveredFace) {
+                    hoveredGrabber = grabber
+                    hoveredFace = face
+                    invalidate()
+                }
+            }
+        }
+    }
+
+    /**
+     * GLCanvas3D::on_mouse() for a right click that panned nothing: the menu
+     * a finger held at ([x], [y]) asks for, or what the open tool does with a
+     * right click there (an ear goes, a piece of the cut turns over). The
+     * painting, measuring and mesh boolean tools and the variable layer height
+     * take no right click here, nor the cut while its line is drawn.
+     */
+    fun contextClick(x: Float, y: Float, grabberRadius: Float) {
+        if (painting || measure != null || meshBoolean != null || isEditingLayers || cut?.drawingLine == true) return
+        val pressed = press(x, y, grabberRadius)
+        if (pressed) openObjectMenu(x, y) else openPlateMenu(x, y)
+        // What the press held is let go, as a finger held still lets it go.
+        endMove(cancelled = true)
+    }
+
+    /** The arrow or page keys move or turn the selection until they are let go ([endKeyManipulation]). */
+    private var keyDrag = false
+
+    /**
+     * GLCanvas3D::on_key()'s TranslationProcessor: the selection moves by
+     * [x] and [y] steps of 10 mm, 1 mm when [fine], along X and Y or, with
+     * [cameraSpace], along the camera's right and up, which lose their height.
+     * False when nothing could move.
+     */
+    fun keyMove(x: Int, y: Int, fine: Boolean, cameraSpace: Boolean): Boolean {
+        val step = if (fine) 1.0 else 10.0
+        val direction = if (cameraSpace) camera.dirRight() * x.toDouble() + camera.dirUp() * y.toDouble() else Vec3(x.toDouble(), y.toDouble(), 0.0)
+        val displacement = Vec3(direction.x, direction.y, 0.0) * step
+        val held = (drag as? ObjectDrag)?.takeIf { keyDrag } ?: startKeyDrag { target, key, others ->
+            ObjectDrag(target.index, target.world, Vec3.ZERO, key, others = others)
+        } ?: return false
+        val target = targetOf(held) ?: return false
+        held.moved = true
+        val offset = target.world.translation() - held.startWorld.translation() + displacement
+        replaceObject(target.withWorld(held.startWorld.withTranslation(held.startWorld.translation() + offset)), alone = held.key != null)
+        held.together().forEach { (index, start) ->
+            objects.firstOrNull { it.index == index }?.let { replaceObject(it.withWorld(start.withTranslation(start.translation() + offset))) }
+        }
+        if (sequentialPrint != null) {
+            updateSequentialClearance()
+            invalidate()
+        }
+        return true
+    }
+
+    /** Page Up and Page Down: the selection turns about Z through its box's centre by 45°, counterclockwise for Page Up. */
+    fun keyRotate(counterclockwise: Boolean): Boolean {
+        val held = (drag as? RotateGrabberDrag)?.takeIf { keyDrag } ?: startKeyDrag { target, key, others ->
+            val box = (listOf(target) + others.mapNotNull { (index, _) -> objects.firstOrNull { it.index == index } })
+                .map(SceneObject::bounds).reduceOrNull(Box3::merge) ?: return@startKeyDrag null
+            RotateGrabberDrag(target.index, target.world, Z_AXIS, box.center(), 0.0, key).also { it.group = others }
+        } ?: return false
+        val target = targetOf(held) ?: return false
+        held.moved = true
+        held.angle += if (counterclockwise) KEY_ROTATION else -KEY_ROTATION
+        replaceObject(target.withWorld(RotateGizmo.rotated(held.startWorld, held.axis, held.angle, held.center)), alone = held.key != null)
+        held.group.forEach { (index, start) ->
+            objects.firstOrNull { it.index == index }?.let { replaceObject(it.withWorld(RotateGizmo.rotated(start, held.axis, held.angle, held.center))) }
+        }
+        return true
+    }
+
+    /** The drag the keys hold of the selection, as [make] makes it of the target, its volume key and the other copies. */
+    private inline fun <T : Drag> startKeyDrag(make: (SceneObject, String?, List<Pair<Int, Affine3>>) -> T?): T? {
+        if (!editable || assembly != null || drag != null) return null
+        val target = selectedTarget() ?: return null
+        val key = volumeMode()
+        val others = if (key != null) {
+            emptyList()
+        } else {
+            selectedIndexes.filter { it != target.index }.mapNotNull { index -> objects.firstOrNull { it.index == index }?.let { index to it.world } }
+        }
+        val started = make(target, key, others) ?: return null
+        drag = started
+        keyDrag = true
+        return started
+    }
+
+    /** The key let go: do_move("Tool Move") or do_rotate("Tool Rotate") of what the keys did. */
+    fun endKeyManipulation() {
+        if (!keyDrag) return
+        keyDrag = false
+        endMove()
     }
 
     /**
@@ -3646,10 +4063,15 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      * app reads what the rectangle covers from a picking pass, which sees only
      * what is in front; here a copy counts with a corner of its mesh inside the
      * rectangle, or under the rectangle's corners or centre in front of the rest.
+     * With Shift alone ([replace]) the selection is cleared first.
      */
-    fun finishRectangle() {
+    fun finishRectangle(replace: Boolean = false) {
         val rect = rectangleState.value ?: return
         rectangleState.value = null
+        if (replace) {
+            selectedIndex = null
+            onSelectObject(null)
+        }
         val clip = Matrix4.multiply(camera.projectionMatrix, camera.viewMatrix.elements())
         val candidates = plateObjects.filter { !it.modifier && !it.overlay }
         val covered = HashSet<Int>()
@@ -3913,15 +4335,15 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         if (painting) return paintCursorFrame()
         val target = selectedTarget() ?: return null
         return when (gizmo) {
-            PlateGizmo.MOVE -> moveGizmo(target).frame((drag as? MoveGrabberDrag)?.axis, density)
+            PlateGizmo.MOVE -> moveGizmo(target).frame((drag as? MoveGrabberDrag)?.axis ?: hoveredGrabber, density)
             PlateGizmo.ROTATE -> {
                 // The rings stay where the drag began while the object turns inside them.
                 val rotating = drag as? RotateGrabberDrag
                 val gizmo = rotating?.let { RotateGizmo(it.center, it.sphereRadius, pixel()) } ?: rotateGizmo(target) ?: return null
-                gizmo.frame(rotating?.axis, rotating?.angle ?: 0.0, density)
+                gizmo.frame(rotating?.axis ?: hoveredGrabber, rotating?.angle ?: 0.0, density)
             }
-            PlateGizmo.SCALE -> scaleGizmo(target)?.frame((drag as? ScaleGrabberDrag)?.id, density, uniformOnly = groupIndexes() != null && groupUniformScale)
-            PlateGizmo.LAY_ON_FACE -> layOnFace.frame(target.world, pressed = null)
+            PlateGizmo.SCALE -> scaleGizmo(target)?.frame((drag as? ScaleGrabberDrag)?.id ?: hoveredGrabber, density, uniformOnly = groupIndexes() != null && groupUniformScale)
+            PlateGizmo.LAY_ON_FACE -> layOnFace.frame(target.world, pressed = hoveredFace)
             null -> null
         }
     }
@@ -3949,6 +4371,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         const val ZOOM_TO_BED_MARGIN_FACTOR = 2.0
         // libslic3r.h and Model.hpp
         const val EPSILON = 1e-4
+        // Camera::ZoomUnit, and the most notches update_zoom() takes at once.
+        const val ZOOM_UNIT = 0.1
+        const val MAX_ZOOM_NOTCHES = 4.0
+        // GLCanvas3D::on_key(): Page Up and Page Down turn by a quarter of PI.
+        const val KEY_ROTATION = 0.25 * PI
+        const val Z_AXIS = 2
         // GLGizmoMeasure's m_sphere: smooth_sphere(16, 7.5f), in pixels.
         const val MEASURE_SPHERE_RADIUS = 7.5
         const val SINKING_Z_THRESHOLD = -0.001

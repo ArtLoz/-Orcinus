@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,7 +22,7 @@ import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.ArchiveEntry
 import app.orcinus.shadow.core.model.ArchivePreview
@@ -35,15 +33,15 @@ import app.orcinus.shadow.core.ui.orca.orcaString
  * files under the folders they sit in, each with its check box, and a
  * folder's check box for every file under it; "All" and "None" pick every
  * file or none, "Open" loads those picked. A phone shows the tree as a list
- * in a sheet, and dismissing it is Cancel.
+ * in a sheet, a larger window as a dialog 45 em wide (FileArchiveDialog's
+ * SetSize()), and dismissing it is Cancel.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArchivePreviewSheet(preview: ArchivePreview, onAnswer: (List<ArchiveEntry>?) -> Unit) {
     val colors = OrcaTheme.colors
     var picked by remember(preview) { mutableStateOf(preview.picked.toSet()) }
     val folders = preview.entries.groupBy { it.path.substringBeforeLast('/', "") }
-    ModalBottomSheet(onDismissRequest = { onAnswer(null) }, containerColor = colors.window, dragHandle = { OrcaSheetHandle() }) {
+    OrcaSheet(onDismissRequest = { onAnswer(null) }, dialogWidth = ARCHIVE_DIALOG_WIDTH) {
         Column(Modifier.navigationBarsPadding()) {
             Text(
                 text = orcaString("Archive preview"),
@@ -119,3 +117,6 @@ private fun ArchiveRow(name: String, checked: Boolean?, depth: Int, folder: Bool
         )
     }
 }
+
+/** FileArchiveDialog's SetSize(): 45 em. */
+private val ARCHIVE_DIALOG_WIDTH = 460.dp

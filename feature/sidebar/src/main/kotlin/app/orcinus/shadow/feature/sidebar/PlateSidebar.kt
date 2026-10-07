@@ -19,6 +19,7 @@ import app.orcinus.shadow.core.model.allSliceResultsReady
 import app.orcinus.shadow.core.model.selectedCopies
 import app.orcinus.shadow.core.ui.ExportResultDialog
 import app.orcinus.shadow.core.ui.LocalToolpathsExport
+import app.orcinus.shadow.core.ui.shortcuts.LocalKeyboardShortcuts
 import app.orcinus.shadow.core.ui.plate.DailyTipsWindow
 import app.orcinus.shadow.core.ui.plate.NameErrorDialog
 import app.orcinus.shadow.core.ui.plate.SelectionMenuActions
@@ -69,9 +70,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -107,11 +106,15 @@ import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
 import app.orcinus.shadow.core.designsystem.component.OrcaSegmentedSwitch
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
 import app.orcinus.shadow.core.designsystem.component.OrcaSidebarSection
 import app.orcinus.shadow.core.designsystem.component.OrcaSidebarTitle
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
+import app.orcinus.shadow.core.designsystem.component.OrcaDialogWidth
+import app.orcinus.shadow.core.designsystem.component.OrcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.component.orcaClickable
+import app.orcinus.shadow.core.designsystem.component.orcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.rememberOrcaPickerAnchor
 import app.orcinus.shadow.core.designsystem.component.orcaSelectable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
@@ -173,6 +176,7 @@ import app.orcinus.shadow.core.model.Presets
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ScenePath
+import app.orcinus.shadow.core.model.ShortcutAction
 import app.orcinus.shadow.core.model.SearchCatalogOutcome
 import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SettingsClipboard
@@ -1313,7 +1317,6 @@ data class ObjectListPlate(
  * The heights a range spans (ObjectList::edit_layer_range), which the desktop
  * app edits in two fields of its object list.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LayerRangeSheet(range: LayerRange, onFocus: (LayerRangeEditor) -> Unit, onDismiss: () -> Unit, onApply: (Double, Double) -> Unit) {
     val colors = OrcaTheme.colors
@@ -1330,11 +1333,8 @@ private fun LayerRangeSheet(range: LayerRange, onFocus: (LayerRangeEditor) -> Un
         invalid = from == null || to == null
         if (from != null && to != null) onApply(from, to)
     }
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    // A small dialog of its own on a large window (OrcaSheet).
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = OrcaDialogWidth.Small) {
         Column(Modifier.navigationBarsPadding().padding(horizontal = 16.dp)) {
             Text(
                 text = stringResource(R.string.object_menu_edit_range),
@@ -2539,6 +2539,12 @@ internal fun PlateSidebarContent(
     // Sidebar::show_object_list(false) hides the search bar with the list, which ends a search.
     LaunchedEffect(global) { if (global && objectSearch.active) objectSearch.close() }
     val slotCount = presets?.selection?.allFilaments?.size ?: 0
+    // The combo boxes the preset lists drop down from on a large window.
+    val printerAnchor = rememberOrcaPickerAnchor()
+    val processAnchor = rememberOrcaPickerAnchor()
+    // The search button, which Search::SearchDialog pops up under.
+    val searchAnchor = rememberOrcaPickerAnchor()
+    val filamentAnchors = remember(slotCount) { List(slotCount) { OrcaPickerAnchor() } }
     LaunchedEffect(slotCount) {
         if (!revealFilaments) return@LaunchedEffect
         revealFilaments = false
@@ -2634,7 +2640,9 @@ internal fun PlateSidebarContent(
                     text = printerLabel,
                     enabled = enabled,
                     onClick = { openList = PresetList.PRINTERS },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .orcaPickerAnchor(printerAnchor),
                 )
                 // The edit button of the sidebar, which opens the tab of the preset.
                 OrcaIconButton(
@@ -2777,7 +2785,9 @@ internal fun PlateSidebarContent(
                         text = presets?.filaments?.let { list -> if (index == 0) list.selectedLabel(slot.value) else list.labelOf(slot.value) }.orEmpty(),
                         enabled = enabled,
                         onClick = { openList = PresetList.FILAMENTS; editingSlot = index },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(filamentAnchors.getOrNull(index)?.let { Modifier.orcaPickerAnchor(it) } ?: Modifier),
                     ) {
                         // PresetComboBox's clr_picker: the swatch picks the filament's colour.
                         OrcaFilamentSlot(
@@ -2844,6 +2854,7 @@ internal fun PlateSidebarContent(
                 contentDescription = orcaString("Search in preset"),
                 onClick = { searching = true },
                 enabled = enabled,
+                modifier = Modifier.orcaPickerAnchor(searchAnchor),
             )
             // ParamsPanel's compare button (m_compare_btn).
             OrcaIconButton(
@@ -2859,7 +2870,9 @@ internal fun PlateSidebarContent(
                     text = presets?.processes?.selectedLabel(presets.selection.process.value).orEmpty(),
                     enabled = enabled,
                     onClick = { openList = PresetList.PROCESSES },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .orcaPickerAnchor(processAnchor),
                 )
                 process.settings?.let { SettingsPresetButtons(PresetKind.PRINT, it, enabled, settings) }
             }
@@ -2964,7 +2977,10 @@ internal fun PlateSidebarContent(
         SidebarAction(DesignR.drawable.orca_cog, orcaString("Preferences"), onOpenPreferences)
         // Its Preset Bundle, after Preferences (MainFrame's top menu).
         SidebarAction(DesignR.drawable.orca_menu_edit_preset, orcaString("Preset Bundle"), onOpenPresetBundles)
-        // Help's "Setup Wizard" (GUI_App::ShowUserGuide()), first of generate_help_menu()'s items here.
+        // Help's "Keyboard Shortcuts" (GUI_App::keyboard_shortcuts()), first of generate_help_menu()'s items.
+        val shortcuts = LocalKeyboardShortcuts.current
+        if (shortcuts != null) SidebarAction(DesignR.drawable.orca_help, orcaString("Keyboard Shortcuts")) { shortcuts.perform(ShortcutAction.ShowShortcuts) }
+        // Its "Setup Wizard" (GUI_App::ShowUserGuide()).
         SidebarAction(DesignR.drawable.orca_help, orcaString("Setup Wizard")) { onOpenWizard(PresetWizardPage.GUIDE) }
         // Its "Troubleshoot Center" and "Open Network Test", before "Show Tip of the Day".
         SidebarAction(DesignR.drawable.orca_help, stringResource(R.string.troubleshoot), onOpenTroubleshoot)
@@ -3054,6 +3070,7 @@ internal fun PlateSidebarContent(
                 onOpenSetting(option)
             },
             onDismiss = { searching = false },
+            anchor = searchAnchor,
         )
     }
 
@@ -3197,6 +3214,7 @@ internal fun PlateSidebarContent(
         when (openList) {
             PresetList.PRINTERS -> PresetListSheet(
                 title = stringResource(R.string.section_printer),
+                anchor = printerAnchor,
                 items = presets.printers,
                 onDismiss = { openList = null },
                 onChoose = { item ->
@@ -3217,6 +3235,7 @@ internal fun PlateSidebarContent(
             )
             PresetList.FILAMENTS -> PresetListSheet(
                 title = stringResource(R.string.section_filament),
+                anchor = filamentAnchors.getOrNull(editingSlot),
                 // The list of a slot marks the preset of that slot.
                 items = presets.selection.allFilaments.getOrNull(editingSlot)?.let { slot ->
                     presets.filaments.map { it.copy(selected = it.name == slot.value) }
@@ -3241,6 +3260,7 @@ internal fun PlateSidebarContent(
             )
             PresetList.PROCESSES -> PresetListSheet(
                 title = stringResource(R.string.section_process),
+                anchor = processAnchor,
                 items = presets.processes,
                 onDismiss = { openList = null },
                 onChoose = { item ->

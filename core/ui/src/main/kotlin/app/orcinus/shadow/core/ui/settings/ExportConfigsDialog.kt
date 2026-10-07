@@ -31,9 +31,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
+import app.orcinus.shadow.core.designsystem.component.OrcaFullScreenDialog
 import app.orcinus.shadow.core.designsystem.component.OrcaRadioButton
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.ConfigExportEntry
@@ -66,10 +65,8 @@ fun ExportConfigsDialog(
     // The check boxes start empty, as the dialog opens them.
     val chosen = remember(entries) { entries.map { false }.toMutableStateList() }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
+    // ExportConfigsDialog::ExportConfigsDialog(): SetSize(FromDIP(600), FromDIP(600)), with room for touch.
+    OrcaFullScreenDialog(onDismissRequest = onDismiss, width = 640.dp, height = 680.dp) {
         Column(
             Modifier
                 .fillMaxSize()

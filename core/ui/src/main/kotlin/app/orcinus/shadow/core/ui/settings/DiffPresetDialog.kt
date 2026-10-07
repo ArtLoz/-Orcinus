@@ -6,6 +6,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,12 +36,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import app.orcinus.shadow.core.designsystem.component.OrcaComboField
+import app.orcinus.shadow.core.designsystem.component.OrcaFullScreenDialog
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
+import app.orcinus.shadow.core.designsystem.component.OrcaPickerAnchor
 import app.orcinus.shadow.core.designsystem.component.orcaClickable
+import app.orcinus.shadow.core.designsystem.component.orcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
+import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.ComparedPresets
 import app.orcinus.shadow.core.model.PresetChange
@@ -101,11 +105,14 @@ fun DiffPresetDialog(actions: PresetComparisonActions, onDismiss: () -> Unit) {
     // enable_transfer(): the values only move into a preset the app has not
     // modified, or into the very preset it edits.
     val canTransfer = compared.all { !it.editedDirty || it.edited == it.right }
+    // The combo boxes the preset lists drop down from on a large window, by kind and side.
+    val anchors = remember { HashMap<Pair<PresetKind, Boolean>, OrcaPickerAnchor>() }
+    val anchorOf = { kind: PresetKind, isLeft: Boolean -> anchors.getOrPut(kind to isLeft) { OrcaPickerAnchor() } }
+    // A window wider than a phone has room for the tree's value columns beside the option's name.
+    val columns = currentOrcaWindowLayout() != OrcaWindowLayout.Compact
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
+    // DiffPresetDialog::DiffPresetDialog(): SetMinSize(80 em, 30 em), growing with its tree.
+    OrcaFullScreenDialog(onDismissRequest = onDismiss, width = 900.dp, height = 760.dp) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -147,6 +154,7 @@ fun DiffPresetDialog(actions: PresetComparisonActions, onDismiss: () -> Unit) {
                     val kind = compared[index]
                     ComparedPresetsRow(
                         compared = kind,
+                        anchorOf = { isLeft -> anchorOf(kind.kind, isLeft) },
                         onChoose = { isLeft -> choosing = kind.kind to isLeft },
                         // The equal button: the right box selects the left preset.
                         onCopy = { right = right.with(kind.kind, kind.left) },
@@ -185,6 +193,7 @@ fun DiffPresetDialog(actions: PresetComparisonActions, onDismiss: () -> Unit) {
                     when (val row = rows[index]) {
                         is DiffRow.Option -> ComparedValueRow(
                             change = row.change,
+                            columns = columns,
                             checked = picked.isPicked(row.kind, row.change.id),
                             onCheckedChange = { checked: Boolean -> picked.pick(row.kind, listOf(row.change.id), checked) }.takeIf { useForTransfer },
                         )
@@ -199,19 +208,21 @@ fun DiffPresetDialog(actions: PresetComparisonActions, onDismiss: () -> Unit) {
                 }
             }
         }
-    }
-
-    choosing?.let { (kind, isLeft) ->
-        val row = compared.firstOrNull { it.kind == kind } ?: return@let
-        PresetListSheet(
-            title = orcaString(kind.title()),
-            items = if (isLeft) row.leftPresets else row.rightPresets,
-            onDismiss = { choosing = null },
-            onChoose = { item ->
-                choosing = null
-                if (isLeft) left = left.with(kind, item.name) else right = right.with(kind, item.name)
-            },
-        )
+        // The list opens in the dialog's window, so on a large window it drops
+        // down from its combo box inside it.
+        choosing?.let { (kind, isLeft) ->
+            val row = compared.firstOrNull { it.kind == kind } ?: return@let
+            PresetListSheet(
+                title = orcaString(kind.title()),
+                items = if (isLeft) row.leftPresets else row.rightPresets,
+                onDismiss = { choosing = null },
+                onChoose = { item ->
+                    choosing = null
+                    if (isLeft) left = left.with(kind, item.name) else right = right.with(kind, item.name)
+                },
+                anchor = anchorOf(kind, isLeft),
+            )
+        }
     }
 }
 
@@ -292,7 +303,12 @@ private fun PresetKind.icon(): Int = when (this) {
 
 /** The presets of one kind the dialog selects, with the equal button between them. */
 @Composable
-private fun ComparedPresetsRow(compared: PresetKindComparison, onChoose: (Boolean) -> Unit, onCopy: () -> Unit) {
+private fun ComparedPresetsRow(
+    compared: PresetKindComparison,
+    anchorOf: (isLeft: Boolean) -> OrcaPickerAnchor,
+    onChoose: (Boolean) -> Unit,
+    onCopy: () -> Unit,
+) {
     val colors = OrcaTheme.colors
     Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
         Text(
@@ -305,7 +321,9 @@ private fun ComparedPresetsRow(compared: PresetKindComparison, onChoose: (Boolea
             OrcaComboField(
                 text = compared.leftPresets.labelOf(compared.left),
                 onClick = { onChoose(true) },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .orcaPickerAnchor(anchorOf(true)),
             )
             OrcaIconButton(
                 icon = when {
@@ -319,7 +337,9 @@ private fun ComparedPresetsRow(compared: PresetKindComparison, onChoose: (Boolea
             OrcaComboField(
                 text = compared.rightPresets.labelOf(compared.right),
                 onClick = { onChoose(false) },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .orcaPickerAnchor(anchorOf(false)),
             )
         }
     }
@@ -356,12 +376,14 @@ private fun TreeRow(text: String, level: Int, icon: Int?, checked: Boolean, onCh
 }
 
 /**
- * One setting the presets differ in: its name, and the value each preset holds.
- * A value too long for its column is cut short (DiffViewCtrl::Append()), and
- * the row opens FullCompareDialog on it (DiffViewCtrl::context_menu()).
+ * One setting the presets differ in: its name, and the value each preset holds,
+ * under the name on a phone and in [columns] beside it otherwise, as the
+ * desktop tree's "Left Preset Value" and "Right Preset Value" columns. A value
+ * too long for its column is cut short (DiffViewCtrl::Append()), and the row
+ * opens FullCompareDialog on it (DiffViewCtrl::context_menu()).
  */
 @Composable
-private fun ComparedValueRow(change: PresetChange, checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?) {
+private fun ComparedValueRow(change: PresetChange, columns: Boolean, checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?) {
     val colors = OrcaTheme.colors
     val label = orcaText(change.label)
     val left = orcaText(change.oldValue)
@@ -378,26 +400,40 @@ private fun ComparedValueRow(change: PresetChange, checked: Boolean, onCheckedCh
         if (onCheckedChange != null) {
             OrcaCheckBox(checked = checked, onCheckedChange = onCheckedChange)
         }
-        Column(
-            Modifier
-                .weight(1f)
-                .padding(vertical = 6.dp),
-        ) {
-            Text(label, color = colors.text, style = OrcaTheme.typography.body13)
-            Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // The "Left Preset Value" and "Right Preset Value" columns.
-                Text(
-                    text = FullCompare.shortValue(left),
-                    color = colors.textLabel,
-                    style = OrcaTheme.typography.body12,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = FullCompare.shortValue(right),
-                    color = colors.labelModified,
-                    style = OrcaTheme.typography.body12,
-                    modifier = Modifier.weight(1f),
-                )
+        // The "Left Preset Value" and "Right Preset Value" columns.
+        val values: @Composable RowScope.() -> Unit = {
+            Text(
+                text = FullCompare.shortValue(left),
+                color = colors.textLabel,
+                style = OrcaTheme.typography.body12,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = FullCompare.shortValue(right),
+                color = colors.labelModified,
+                style = OrcaTheme.typography.body12,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        if (columns) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(label, color = colors.text, style = OrcaTheme.typography.body13, modifier = Modifier.weight(1f))
+                values()
+            }
+        } else {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .padding(vertical = 6.dp),
+            ) {
+                Text(label, color = colors.text, style = OrcaTheme.typography.body13)
+                Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), content = values)
             }
         }
     }

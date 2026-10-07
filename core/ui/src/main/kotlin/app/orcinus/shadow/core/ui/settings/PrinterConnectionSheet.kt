@@ -25,8 +25,6 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -55,9 +53,12 @@ import app.orcinus.shadow.core.designsystem.component.OrcaComboBox
 import app.orcinus.shadow.core.designsystem.component.OrcaComboField
 import app.orcinus.shadow.core.designsystem.component.OrcaRadioButton
 import app.orcinus.shadow.core.designsystem.component.OrcaSegmentedSwitch
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaDialogWidth
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.component.OrcaSwitch
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
+import app.orcinus.shadow.core.designsystem.component.orcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.rememberOrcaPickerAnchor
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.BonjourReply
 import app.orcinus.shadow.core.model.CloudLoginOutcome
@@ -103,8 +104,8 @@ import kotlinx.coroutines.launch
  * saved as a copy of its own, "<name> - Copy". The desktop dialog lays out the
  * whole "Print Host upload" group; a phone shows the fields the hosts the app
  * sends to take — the kind of host, its address and page, its key or login.
+ * A phone shows it as a sheet, a larger window as the dialog, 45 em wide.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PrinterConnectionSheet(
     load: suspend () -> PrinterConnectionOutcome,
@@ -142,11 +143,7 @@ fun PrinterConnectionSheet(
         }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = DIALOG_45_EM) {
         Column(
             Modifier
                 .navigationBarsPadding()
@@ -226,6 +223,9 @@ private fun ConnectionForm(
     var browsing by remember { mutableStateOf(false) }
     // update_printers(): what the Refresh button found, or why it found nothing.
     var hostPrinters by remember { mutableStateOf<List<String>?>(null) }
+    // The fields the lists of the host types and of the server's printers drop down from on a large window.
+    val typeAnchor = rememberOrcaPickerAnchor()
+    val printersAnchor = rememberOrcaPickerAnchor()
     var printersProblem by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
 
@@ -280,7 +280,13 @@ private fun ConnectionForm(
         )
         Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(orcaString("Host Type"), color = colors.text, style = OrcaTheme.typography.body14, modifier = Modifier.weight(1f))
-            OrcaComboField(text = orcaString(type.label), onClick = { choosingType = true }, modifier = Modifier.width(200.dp))
+            OrcaComboField(
+                text = orcaString(type.label),
+                onClick = { choosingType = true },
+                modifier = Modifier
+                    .width(200.dp)
+                    .orcaPickerAnchor(typeAnchor),
+            )
         }
         Field(orcaString("Hostname, IP or URL"), printer.host, enabled = type.hostEditable) { set("print_host", it.trim()) }
         // update_printhost_buttons(): Browse for a host that finds itself on
@@ -411,7 +417,9 @@ private fun ConnectionForm(
                 style = OrcaButtonStyle.Regular,
                 enabled = printer.host.isNotBlank() && !refreshing,
                 icon = DesignR.drawable.orca_monitor_signal_strong,
-                modifier = Modifier.padding(vertical = 4.dp),
+                modifier = Modifier
+                    .padding(vertical = 4.dp)
+                    .orcaPickerAnchor(printersAnchor),
             )
             printersProblem?.let {
                 Text(
@@ -453,6 +461,7 @@ private fun ConnectionForm(
     if (choosingType) {
         ChoiceListSheet(
             title = orcaString("Host Type"),
+            anchor = typeAnchor,
             items = typeLabels,
             onDismiss = { choosingType = false },
             onChoose = { label ->
@@ -546,6 +555,8 @@ private fun ConnectionForm(
     hostPrinters?.let { printers ->
         ChoiceListSheet(
             title = orcaString("Printer"),
+            // The server's printers drop down from the Refresh button that listed them.
+            anchor = printersAnchor,
             items = printers,
             onDismiss = { hostPrinters = null },
             onChoose = { slug ->
@@ -607,9 +618,9 @@ fun openInBrowser(context: Context, url: String) {
 /**
  * OAuthDialog: "Authorizing..." with Cancel while the login page is open in
  * the browser and the app waits for it to come back; Cancel stops the wait,
- * which the desktop reports as "User canceled.".
+ * which the desktop reports as "User canceled.". A larger window shows it as
+ * the dialog, 45 em wide.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CloudAuthorizingSheet(
     title: String,
@@ -620,11 +631,7 @@ private fun CloudAuthorizingSheet(
     val colors = OrcaTheme.colors
     val done by rememberUpdatedState(onDone)
     LaunchedEffect(Unit) { done(login()) }
-    ModalBottomSheet(
-        onDismissRequest = { done(CloudLoginOutcome.Failure(canceled)) },
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = { done(CloudLoginOutcome.Failure(canceled)) }, dialogWidth = DIALOG_45_EM) {
         Column(
             Modifier
                 .navigationBarsPadding()
@@ -651,9 +658,10 @@ private fun CloudAuthorizingSheet(
  * Plater::send_gcode_legacy(): the G-code of the plate goes to the host of the
  * printer preset, with a switch for starting the print at once
  * (PrintHostPostUploadAction::StartPrint). A preset without a host has
- * nothing to send to; its host is set up with the Connection button.
+ * nothing to send to; its host is set up with the Connection button. A larger
+ * window shows it as a dialog of PrintHostSendDialog's width (the Flashforge
+ * one's SetMinSize(560, 420)).
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SendToPrinterSheet(
     load: suspend () -> PrinterConnectionOutcome,
@@ -778,11 +786,7 @@ fun SendToPrinterSheet(
         return options.copy(uploadPath = uploadPath, group = group, storage = storagePath, switchToDeviceTab = switchToDevice, use3mf = use3mf)
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = OrcaDialogWidth.Medium) {
         Column(Modifier.navigationBarsPadding()) {
             Text(
                 text = orcaString("Send G-code to printer host"),
@@ -1267,3 +1271,6 @@ private fun Field(label: String, value: String, enabled: Boolean = true, onValue
 }
 
 private const val NAME_CHECK_DELAY_MILLIS = 150L
+
+/** PhysicalPrinterDialog and OAuthDialog: wxSize(45 * em_unit(), -1). */
+private val DIALOG_45_EM = 460.dp

@@ -10,17 +10,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.ui.orca.orcaString
 import org.json.JSONObject
@@ -31,20 +28,15 @@ import org.json.JSONObject
  * login_token, and any message it sends closes the dialog; [onClose] gets the
  * token, or an empty one when the page gave none or the sheet was closed —
  * the dialog's GetApiKey() then, which the desktop writes into the key field
- * either way.
+ * either way. A phone shows it as a sheet, a larger window as the dialog,
+ * FromDIP(650) wide.
  */
 @SuppressLint("SetJavaScriptEnabled")
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun CloudLoginSheet(url: String, onClose: (token: String) -> Unit) {
     val colors = OrcaTheme.colors
     val close by rememberUpdatedState(onClose)
-    ModalBottomSheet(
-        onDismissRequest = { close("") },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = { close("") }, dialogWidth = LOGIN_WIDTH, skipPartiallyExpanded = true) {
         Column(Modifier.navigationBarsPadding()) {
             Text(
                 text = orcaString("Login"),
@@ -85,5 +77,6 @@ internal fun CloudLoginSheet(url: String, onClose: (token: String) -> Unit) {
     }
 }
 
-/** Near the desktop dialog's 840 px on a phone's sheet. */
+/** PrinterCloudAuthDialog: FromDIP(wxSize(650, 840)); the height near it on a phone's sheet. */
+private val LOGIN_WIDTH = 650.dp
 private val LOGIN_HEIGHT = 560.dp

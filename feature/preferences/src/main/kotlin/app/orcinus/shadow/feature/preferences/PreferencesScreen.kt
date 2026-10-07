@@ -51,6 +51,13 @@ import app.orcinus.shadow.core.designsystem.component.OrcaSpinInput
 import app.orcinus.shadow.core.designsystem.component.OrcaSwitch
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.component.OrcaUnderlineTabs
+import app.orcinus.shadow.core.designsystem.layout.OrcaCentredContent
+import app.orcinus.shadow.core.designsystem.layout.OrcaListDetailPanes
+import app.orcinus.shadow.core.designsystem.layout.OrcaPageList
+import app.orcinus.shadow.core.designsystem.layout.OrcaPageWidth
+import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
+import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
+import app.orcinus.shadow.core.designsystem.layout.orcaContentWidth
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.OrcaText
@@ -78,8 +85,8 @@ internal fun PreferencesRoute(viewModel: PreferencesViewModel, onBack: () -> Uni
 }
 
 /**
- * PreferencesDialog: its tabs along the top, as the desktop dialog lists them
- * down its side, and every item of the tab with the value it holds. An item's
+ * PreferencesDialog: its tabs along the top, or down the side on a large
+ * window, and every item of the tab with the value it holds. An item's
  * label shows its tooltip when tapped, as the desktop label shows it under the
  * pointer; what changes is written at once.
  */
@@ -109,24 +116,42 @@ internal fun PreferencesScreen(
             .background(colors.window),
     ) {
         OrcaPageTopBar(title = orcaString("Preferences"), backDescription = stringResource(R.string.preferences_back), onBack = onBack)
-        OrcaUnderlineTabs(titles = PREFERENCE_PAGES.map { orcaString(it.title) }, selectedIndex = page, onSelect = { page = it })
-        LazyColumn(Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))) {
-            for (section in PREFERENCE_PAGES[page].sections) {
-                item(key = "section:${section.title}") { SectionTitle(orcaString(section.title)) }
-                items(section.items, key = { it.key }) { item ->
-                    PreferenceRow(item, values, enabled, language, onTooltip = { tooltip = item }, onOpen = onOpenNetworkTest) { key, value ->
-                        when {
-                            // create_item_checkbox(): turning the restriction off asks first.
-                            key == AppConfigKeys.ENABLE_HIGH_LOW_TEMP_MIXED_PRINTING && value == "true" -> confirmingMixedTemperatures = true
-                            // create_item_language_combobox(): another language asks first.
-                            key == AppConfigKeys.LANGUAGE -> ORCA_LANGUAGES.firstOrNull { it.catalog == value }
-                                ?.takeIf { it != language }
-                                ?.let { confirmingLanguage = it }
-                            else -> onSet(key, value)
+        val titles = PREFERENCE_PAGES.map { orcaString(it.title) }
+        // The items of the page, no wider than PreferencesDialog lays them out
+        // (DESIGN_TITLE_SIZE beside DESIGN_LARGE_COMBOBOX_SIZE).
+        val pageItems: @Composable (Modifier) -> Unit = { modifier ->
+            OrcaCentredContent(OrcaPageWidth.Settings, modifier) { padding ->
+                LazyColumn(contentPadding = padding) {
+                    for (section in PREFERENCE_PAGES[page].sections) {
+                        item(key = "section:${section.title}") { SectionTitle(orcaString(section.title)) }
+                        items(section.items, key = { it.key }) { item ->
+                            PreferenceRow(item, values, enabled, language, onTooltip = { tooltip = item }, onOpen = onOpenNetworkTest) { key, value ->
+                                when {
+                                    // create_item_checkbox(): turning the restriction off asks first.
+                                    key == AppConfigKeys.ENABLE_HIGH_LOW_TEMP_MIXED_PRINTING && value == "true" -> confirmingMixedTemperatures = true
+                                    // create_item_language_combobox(): another language asks first.
+                                    key == AppConfigKeys.LANGUAGE -> ORCA_LANGUAGES.firstOrNull { it.catalog == value }
+                                        ?.takeIf { it != language }
+                                        ?.let { confirmingLanguage = it }
+                                    else -> onSet(key, value)
+                                }
+                            }
                         }
                     }
                 }
             }
+        }
+        val insets = Modifier
+            .weight(1f)
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+        if (currentOrcaWindowLayout() == OrcaWindowLayout.Expanded) {
+            // A large window lists the tabs (m_pref_tabs) down the side of the items.
+            OrcaListDetailPanes(list = { OrcaPageList(titles = titles, selectedIndex = page, onSelect = { page = it }) }, modifier = insets) {
+                pageItems(Modifier.weight(1f))
+            }
+        } else {
+            OrcaUnderlineTabs(titles = titles, selectedIndex = page, onSelect = { page = it }, modifier = Modifier.orcaContentWidth(OrcaPageWidth.Settings))
+            pageItems(insets)
         }
     }
     tooltip?.let { item ->

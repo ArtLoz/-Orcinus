@@ -5,14 +5,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaDialogWidth
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.component.orcaClickable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.ModelLoad
@@ -21,13 +20,13 @@ import app.orcinus.shadow.core.ui.orca.orcaString
 /**
  * ProjectDropDialog: what a 3MF file picked for a plate with objects loads as.
  * The desktop dialog chooses with radio buttons and OK; a phone lists the two
- * actions in a sheet, and dismissing it is Cancel.
+ * actions in a sheet, a larger window in a small dialog (the dialog wraps the
+ * file name at FromDIP(300)), and dismissing it is Cancel.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectDropSheet(fileName: String, onChoose: (ModelLoad?) -> Unit) {
     val colors = OrcaTheme.colors
-    ModalBottomSheet(onDismissRequest = { onChoose(null) }, containerColor = colors.window, dragHandle = { OrcaSheetHandle() }) {
+    OrcaSheet(onDismissRequest = { onChoose(null) }, dialogWidth = OrcaDialogWidth.Small) {
         Column(Modifier.navigationBarsPadding()) {
             Text(
                 text = orcaString("Please select an action"),

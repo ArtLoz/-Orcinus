@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,7 +32,7 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.ui.orca.OrcaHint
 import app.orcinus.shadow.core.ui.orca.OrcaHints
@@ -121,15 +119,16 @@ fun DailyTipsPanel(expanded: Boolean, onExpand: (Boolean) -> Unit, modifier: Mod
 /**
  * DailyTipsWindow of Help's "Show Tip of the Day": "Daily Tips" over the
  * hint the panel is on (retrieve_data_from_hint_database(Curr)), its number
- * of all and the arrows; a sheet in place of the window over the canvas.
+ * of all and the arrows; a sheet on a phone, and on a larger window a dialog
+ * in the middle as DailyTipsWindow::render() centres its window over the
+ * canvas, its panel 400 wide with 25 of padding at each side.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DailyTipsWindow(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val colors = OrcaTheme.colors
     val hints by produceState(OrcaHintsFile.loaded.orEmpty(), context) { value = OrcaHintsFile.load(context.applicationContext) }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.window, dragHandle = { OrcaSheetHandle() }) {
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = TIPS_WINDOW_WIDTH) {
         Column(
             Modifier
                 .navigationBarsPadding()
@@ -215,3 +214,6 @@ private fun Arrow(icon: Int, onClick: () -> Unit) {
             .padding(4.dp),
     )
 }
+
+/** DailyTipsWindow::render(): the panel's 400 and the window's padding of 25 at each side. */
+private val TIPS_WINDOW_WIDTH = 450.dp

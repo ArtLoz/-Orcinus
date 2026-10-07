@@ -11,8 +11,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,7 +27,8 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.OrcaPickerSheet
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.component.orcaClickable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -54,8 +53,11 @@ import app.orcinus.shadow.core.ui.orca.orcaText
  * the engine for the settings once the sheet opens. The search button of a tab
  * ("Search in preset", Plater::search(false, m_type)) finds the settings of
  * its [kind] alone, and without a query lists only them.
+ *
+ * A phone shows it as a sheet; a larger window drops it down from the search
+ * button of [anchor], as SearchDialog pops up under the sidebar's search, 41 em
+ * wide (POPUP_WIDTH), or shows it as a dialog of that width without one.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsSearchSheet(
     mode: SettingsMode,
@@ -63,6 +65,7 @@ fun SettingsSearchSheet(
     onChoose: (SearchOption) -> Unit,
     onDismiss: () -> Unit,
     kind: PresetKind? = null,
+    anchor: OrcaPickerAnchor? = null,
 ) {
     val colors = OrcaTheme.colors
     var query by rememberSaveable { mutableStateOf("") }
@@ -79,11 +82,7 @@ fun SettingsSearchSheet(
     // search matches the query against.
     val texts = LocalOrcaCatalog.current
     val results = if (catalog == null) emptyList() else SettingsSearch.search(query, catalog, mode, texts::format)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaPickerSheet(anchor = anchor, onDismissRequest = onDismiss, minPopupWidth = SEARCH_POPUP_WIDTH) {
         Column(Modifier.navigationBarsPadding()) {
             OrcaTextField(
                 value = query,
@@ -147,3 +146,6 @@ private fun SearchResultRow(result: SearchResult, onClick: () -> Unit) {
         )
     }
 }
+
+/** SearchDialog's POPUP_WIDTH: 41 em. */
+private val SEARCH_POPUP_WIDTH = 410.dp

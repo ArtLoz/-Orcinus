@@ -5,7 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -46,11 +48,12 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
+import app.orcinus.shadow.core.designsystem.component.OrcaFullScreenDialog
 import app.orcinus.shadow.core.designsystem.component.OrcaSpinInput
 import app.orcinus.shadow.core.designsystem.component.OrcaSwitch
+import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
+import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.ui.R
 import app.orcinus.shadow.core.ui.orca.orcaString
@@ -77,10 +80,51 @@ fun RammingDialog(parameters: String, onApply: (String) -> Unit, onDismiss: () -
     var uniform by rememberSaveable { mutableStateOf(false) }
     var warned by rememberSaveable { mutableStateOf(false) }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
+    // RammingPanel: the chart and the parameters beside it where there is room.
+    val sideBySide = currentOrcaWindowLayout() != OrcaWindowLayout.Compact
+    // The parameters RammingPanel lists in sizer_param.
+    val parameterColumn: @Composable ColumnScope.() -> Unit = {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                stringResource(R.string.ramming_constant_flow),
+                color = colors.text,
+                style = OrcaTheme.typography.body14,
+                modifier = Modifier.weight(1f),
+            )
+            OrcaSwitch(checked = uniform, onCheckedChange = { uniform = it })
+        }
+
+        // Total ramming: the time sets the chart's width; the volume only shows.
+        val time = remember(revision) { (chart.time * 1000).toInt() }
+        val volume = remember(revision) { chart.volume.toInt() }
+        RammingTitle(orcaString("Total ramming"))
+        RammingSpin(orcaString("Time"), time, 0..5000, 250, orcaString("ms")) {
+            chart.setTime(it)
+            revision++
+        }
+        RammingSpin(orcaString("Volume"), volume, 0..10000, 1, orcaString("mm³"), enabled = false) {}
+
+        val lineWidth = remember(revision) { chart.lineWidth }
+        val lineSpacing = remember(revision) { chart.lineSpacing }
+        RammingTitle(orcaString("Ramming line"), top = 16.dp)
+        RammingSpin(orcaString("Width"), lineWidth, 10..300, 1, "%") {
+            chart.lineWidth = it
+            revision++
+        }
+        RammingSpin(orcaString("Spacing"), lineSpacing, 10..300, 1, "%") {
+            chart.lineSpacing = it
+            revision++
+        }
+    }
+
+    // RammingDialog fits its panel: the chart scale(480) × scale(360) and the
+    // parameters beside it (RammingPanel::RammingPanel()).
+    OrcaFullScreenDialog(onDismissRequest = onDismiss, width = 900.dp, height = 600.dp) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -92,50 +136,23 @@ fun RammingDialog(parameters: String, onApply: (String) -> Unit, onDismiss: () -
                 onCancel = onDismiss,
                 onOk = { onApply(chart.parameters()) },
             )
-            Column(
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
-                    .verticalScroll(rememberScrollState())
-                    .padding(12.dp),
-            ) {
-                RammingChartView(chart, revision, uniform, onChanged = { revision++ })
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        stringResource(R.string.ramming_constant_flow),
-                        color = colors.text,
-                        style = OrcaTheme.typography.body14,
-                        modifier = Modifier.weight(1f),
-                    )
-                    OrcaSwitch(checked = uniform, onCheckedChange = { uniform = it })
+            val content = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                .verticalScroll(rememberScrollState())
+                .padding(12.dp)
+            if (sideBySide) {
+                Row(content, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Box(Modifier.weight(1.5f)) {
+                        RammingChartView(chart, revision, uniform, onChanged = { revision++ })
+                    }
+                    Column(Modifier.weight(1f), content = parameterColumn)
                 }
-
-                // Total ramming: the time sets the chart's width; the volume only shows.
-                val time = remember(revision) { (chart.time * 1000).toInt() }
-                val volume = remember(revision) { chart.volume.toInt() }
-                RammingTitle(orcaString("Total ramming"))
-                RammingSpin(orcaString("Time"), time, 0..5000, 250, orcaString("ms")) {
-                    chart.setTime(it)
-                    revision++
-                }
-                RammingSpin(orcaString("Volume"), volume, 0..10000, 1, orcaString("mm³"), enabled = false) {}
-
-                val lineWidth = remember(revision) { chart.lineWidth }
-                val lineSpacing = remember(revision) { chart.lineSpacing }
-                RammingTitle(orcaString("Ramming line"), top = 16.dp)
-                RammingSpin(orcaString("Width"), lineWidth, 10..300, 1, "%") {
-                    chart.lineWidth = it
-                    revision++
-                }
-                RammingSpin(orcaString("Spacing"), lineSpacing, 10..300, 1, "%") {
-                    chart.lineSpacing = it
-                    revision++
+            } else {
+                Column(content) {
+                    RammingChartView(chart, revision, uniform, onChanged = { revision++ })
+                    parameterColumn()
                 }
             }
         }

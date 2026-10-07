@@ -28,13 +28,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaComboField
+import app.orcinus.shadow.core.designsystem.component.OrcaFullScreenDialog
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
+import app.orcinus.shadow.core.designsystem.component.orcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.rememberOrcaPickerAnchor
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.FilamentPresetsOutcome
 import app.orcinus.shadow.core.ui.R
@@ -67,10 +68,9 @@ fun EditFilamentDialog(
     }
     val filament = (outcome as? FilamentPresetsOutcome.Success)?.filament
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
+    // EditFilamentPresetDialog::EditFilamentPresetDialog(): SetMinSize(FromDIP(600), -1), and
+    // its preset tree up to 400 high (update_preset_tree()).
+    OrcaFullScreenDialog(onDismissRequest = onDismiss, width = 640.dp, height = 640.dp) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -202,11 +202,12 @@ fun AddFilamentPresetDialog(
     val presets = remember(sources, printer) { sources.filter { it.printer == printer }.map { it.preset } }
     var choosingPrinter by remember { mutableStateOf(false) }
     var choosingPreset by remember { mutableStateOf(false) }
+    // The combo boxes the lists drop down from on a large window.
+    val printerAnchor = rememberOrcaPickerAnchor()
+    val presetAnchor = rememberOrcaPickerAnchor()
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
+    // CreatePresetForPrinterDialog: as large as its two combo boxes under their labels.
+    OrcaFullScreenDialog(onDismissRequest = onDismiss, width = 480.dp, height = 320.dp) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -228,40 +229,54 @@ fun AddFilamentPresetDialog(
                     is FilamentPresetsOutcome.Success -> Unit
                 }
                 Text(orcaString("Printer"), color = colors.textSide, style = OrcaTheme.typography.body12, modifier = Modifier.padding(start = 4.dp))
-                OrcaComboField(text = printer, enabled = printers.isNotEmpty(), onClick = { choosingPrinter = true })
+                OrcaComboField(
+                    text = printer,
+                    enabled = printers.isNotEmpty(),
+                    onClick = { choosingPrinter = true },
+                    modifier = Modifier.orcaPickerAnchor(printerAnchor),
+                )
                 Text(
                     orcaString("Copy preset from filament"),
                     color = colors.textSide,
                     style = OrcaTheme.typography.body12,
                     modifier = Modifier.padding(start = 4.dp, top = 8.dp),
                 )
-                OrcaComboField(text = preset, enabled = presets.isNotEmpty(), onClick = { choosingPreset = true })
+                OrcaComboField(
+                    text = preset,
+                    enabled = presets.isNotEmpty(),
+                    onClick = { choosingPreset = true },
+                    modifier = Modifier.orcaPickerAnchor(presetAnchor),
+                )
             }
         }
-    }
-    if (choosingPrinter) {
-        ChoiceListSheet(
-            title = orcaString("Printer"),
-            items = printers,
-            onDismiss = { choosingPrinter = false },
-            onChoose = { picked ->
-                choosingPrinter = false
-                printer = picked
-                // The filament combo box lists the printer's presets with the first one selected.
-                preset = sources.firstOrNull { it.printer == picked }?.preset.orEmpty()
-            },
-        )
-    }
-    if (choosingPreset) {
-        ChoiceListSheet(
-            title = orcaString("Copy preset from filament"),
-            items = presets,
-            onDismiss = { choosingPreset = false },
-            onChoose = { picked ->
-                choosingPreset = false
-                preset = picked
-            },
-        )
+        // The lists open in the dialog's window, so on a large window they drop
+        // down from their combo boxes inside it.
+        if (choosingPrinter) {
+            ChoiceListSheet(
+                title = orcaString("Printer"),
+                items = printers,
+                anchor = printerAnchor,
+                onDismiss = { choosingPrinter = false },
+                onChoose = { picked ->
+                    choosingPrinter = false
+                    printer = picked
+                    // The filament combo box lists the printer's presets with the first one selected.
+                    preset = sources.firstOrNull { it.printer == picked }?.preset.orEmpty()
+                },
+            )
+        }
+        if (choosingPreset) {
+            ChoiceListSheet(
+                title = orcaString("Copy preset from filament"),
+                items = presets,
+                anchor = presetAnchor,
+                onDismiss = { choosingPreset = false },
+                onChoose = { picked ->
+                    choosingPreset = false
+                    preset = picked
+                },
+            )
+        }
     }
 }
 

@@ -18,10 +18,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,7 +46,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaComboField
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.BedTypeChoice
@@ -59,7 +56,8 @@ import app.orcinus.shadow.core.ui.orca.orcaString
 import kotlin.math.roundToInt
 
 /**
- * PlateSettingsDialog, as a sheet: the plate's name, its bed type (the ones
+ * PlateSettingsDialog, as a sheet on a phone and as the dialog, 650 wide, on a
+ * larger window: the plate's name, its bed type (the ones
  * the printer model supports, chosen for a Bambu Lab printer alone), its print
  * sequence and spiral vase mode, each "Same as Global" or its own, and the
  * order the filaments print in on the first layer and on ranges of the other
@@ -70,7 +68,6 @@ import kotlin.math.roundToInt
  * [onlyLayerSequence] shows the filament sequences alone, as the dialog the
  * plate tab's "Customize" opens ("only_layer_sequence").
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlateSettingsSheet(
     name: String,
@@ -109,12 +106,7 @@ fun PlateSettingsSheet(
         if (spiral == true && !spiralOn) askingSpiral = chosen else onConfirm(plateName, chosen, false)
     }
 
-    ModalBottomSheet(
-        onDismissRequest = { onDismiss(plateName) },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = { onDismiss(plateName) }, dialogWidth = PLATE_SETTINGS_WIDTH, skipPartiallyExpanded = true) {
         Column(
             Modifier
                 .navigationBarsPadding()
@@ -409,3 +401,6 @@ private val SLOT_GAP = 8.dp
 
 /** The length PlateSettingsDialog's name field takes. */
 private const val PLATE_NAME_LENGTH = 250
+
+/** PlateSettingsDialog's m_line_top: FromDIP(650) wide. */
+private val PLATE_SETTINGS_WIDTH = 650.dp

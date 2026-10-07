@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -61,31 +62,41 @@ data class OrcaSummaryItem(
 @Composable
 fun OrcaSummaryRow(items: List<OrcaSummaryItem>, modifier: Modifier = Modifier) {
     val colors = OrcaTheme.colors
-    Row(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = SheetPadding),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        items.forEach { item ->
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(colors.accentSubtle),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(painterResource(item.icon), contentDescription = null, tint = colors.textSide, modifier = Modifier.size(18.dp))
-                }
-                Column(Modifier.padding(start = 8.dp)) {
-                    Text(item.value, color = colors.text, style = OrcaTheme.typography.head14, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(item.caption, color = colors.textSide, style = OrcaTheme.typography.body11, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // A narrow panel (the legend over a tablet's canvas) keeps the figures
+        // whole: the icons give way before the numbers do.
+        val showIcons = items.isEmpty() || maxWidth / items.size >= SummaryItemWithIconMinWidth
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items.forEach { item ->
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    if (showIcons) {
+                        Box(
+                            Modifier
+                                .padding(end = 8.dp)
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(colors.accentSubtle),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(painterResource(item.icon), contentDescription = null, tint = colors.textSide, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    Column {
+                        Text(item.value, color = colors.text, style = OrcaTheme.typography.head14, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(item.caption, color = colors.textSide, style = OrcaTheme.typography.body11, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
         }
     }
 }
+
+/** The width a figure needs beside its icon to show a time like 10m54s whole. */
+private val SummaryItemWithIconMinWidth = 112.dp
 
 /** Choices as a row of chips that scrolls sideways, the selected one filled with the accent. */
 @Composable

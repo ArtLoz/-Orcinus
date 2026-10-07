@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -37,12 +38,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
@@ -56,6 +63,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaNotificationLevel
 import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarToggleSpace
 import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
+import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowTall
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.AppConfigKeys
@@ -79,6 +87,7 @@ import app.orcinus.shadow.core.model.SentFilament
 import app.orcinus.shadow.core.model.PlateInstance
 import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.SettingsDialog
+import app.orcinus.shadow.core.model.ShortcutPage
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PrintHostJob
@@ -127,6 +136,8 @@ import app.orcinus.shadow.core.ui.settings.SendToPrinterSheet
 import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
 import app.orcinus.shadow.core.ui.settings.openInBrowser
 import app.orcinus.shadow.core.ui.shareDocument
+import app.orcinus.shadow.core.ui.shortcuts.rememberShortcutCanvas
+import app.orcinus.shadow.core.ui.shortcuts.shortcutCanvas
 import app.orcinus.shadow.domain.plate.PlateSliceState
 import app.orcinus.shadow.render.gcode.GcodeLines
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
@@ -161,6 +172,7 @@ internal fun PreviewRoute(
     PreviewScreen(
         state = state,
         layout = currentOrcaWindowLayout(),
+        tall = currentOrcaWindowTall(),
         canvas = canvas,
         onSetCanvas = viewModel::setCanvasOption,
         onSelectPlate = viewModel::selectPlate,
@@ -301,9 +313,10 @@ private const val SHELL_ALPHA_GCODE = 0.2f
 /**
  * OrcaSlicer's Preview page. The canvas fills the window edge to edge with the
  * plate and the sliced toolpaths. The legend is a bottom sheet whose collapsed
- * part sums the print up, and the layer and move controls float over the
- * canvas. Until the toolpaths are read, the slicing result sits at the bottom,
- * as the "Sliced Info" box at the bottom of OrcaSlicer's sidebar.
+ * part sums the print up, or on a wide canvas a panel at its side that folds
+ * up to that sum, and the layer and move controls float over the canvas.
+ * Until the toolpaths are read, the slicing result sits at the bottom, as the
+ * "Sliced Info" box at the bottom of OrcaSlicer's sidebar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -340,9 +353,13 @@ internal fun PreviewScreen(
     onSetCanvas: (key: String, value: String) -> Unit = { _, _ -> },
     notifications: PreviewNotificationActions = PreviewNotificationActions.NONE,
     slicedExport: SlicedExport = SlicedExport.NONE,
+    /** The window has the height for the legend beside the canvas; a phone in landscape keeps the sheet. */
+    tall: Boolean = true,
 ) {
     val result = state.result
     val viewCamera = rememberPlateViewCamera()
+    // GLCanvas3D's wxGLCanvas, which holds the keyboard focus as the page shows and as it is pressed.
+    val shortcutCanvas = rememberShortcutCanvas(ShortcutPage.PREVIEW)
     val untitled = orcaString("Untitled")
     var sending by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
@@ -374,6 +391,15 @@ internal fun PreviewScreen(
     // not name the file shows its error, and nothing is saved or sent.
     var nameError by remember { mutableStateOf<String?>(null) }
     val send = { gcodeNameError()?.let { nameError = it } ?: openSending() }
+    PreviewShortcuts(
+        camera = viewCamera,
+        canvas = canvas,
+        onSetCanvas = onSetCanvas,
+        printPlate = {
+            sendingAll = false
+            send()
+        }.takeIf { printPlateEnabled },
+    )
     // PrintHostQueueDialog: the uploads, which go on behind the screen, and the sheet that lists them.
     val uploadJobs by printers.jobs.collectAsStateWithLifecycle()
     var queueShown by rememberSaveable { mutableStateOf(false) }
@@ -427,130 +453,120 @@ internal fun PreviewScreen(
     val allPlatesShown = allPlates != null && allPlates.selected && allPlates.state == PlateSliceState.SLICED
     val peek = if (shown != null && view != null && !allPlatesShown) SheetPeekHeight + navigationBar else 0.dp
 
-    BottomSheetScaffold(
-        sheetContent = {
-            if (shown != null && view != null) {
-                // PrintHost::upload: the sliced plate goes to a printer of the
-                // user, which the desktop app sends from its sidebar.
-                // A code changed on the slider makes the slice invalid
-                // (PartPlate::update_slice_result_valid_state): the plate is sliced again first.
-                if (state.outdated) {
-                    Text(
-                        text = stringResource(R.string.layer_codes_outdated),
-                        color = OrcaTheme.colors.textSide,
-                        style = OrcaTheme.typography.body13,
-                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp),
-                    )
-                }
-                if (state.outdated) {
-                    // MainFrame::update_slice_print_status(): the slice button is back, printing waits for it.
-                    val progress = state.slicingProgress
-                    SliceButton(
-                        mode = state.sliceMode,
-                        enabled = state.sliceEnabled,
-                        onSlice = onSlice,
-                        onModeChange = onSliceModeChange,
-                        text = progress?.let { stringResource(R.string.slicing_progress, (it * 100).roundToInt()) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+    // The print button's exports, the upload and the share sheet, or the slice button while the codes on the
+    // layers wait for a new slice: the top of the legend's sheet, or of its panel on a wide canvas, as the
+    // print and export buttons stand at the top of the desktop window.
+    val printActions: @Composable () -> Unit = {
+        // PrintHost::upload: the sliced plate goes to a printer of the
+        // user, which the desktop app sends from its sidebar.
+        // A code changed on the slider makes the slice invalid
+        // (PartPlate::update_slice_result_valid_state): the plate is sliced again first.
+        if (state.outdated) {
+            Text(
+                text = stringResource(R.string.layer_codes_outdated),
+                color = OrcaTheme.colors.textSide,
+                style = OrcaTheme.typography.body13,
+                modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp),
+            )
+        }
+        if (state.outdated) {
+            // MainFrame::update_slice_print_status(): the slice button is back, printing waits for it.
+            val progress = state.slicingProgress
+            SliceButton(
+                mode = state.sliceMode,
+                enabled = state.sliceEnabled,
+                onSlice = onSlice,
+                onModeChange = onSliceModeChange,
+                text = progress?.let { stringResource(R.string.slicing_progress, (it * 100).roundToInt()) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        } else {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // The print button's exports: "Export G-code file", or "Export plate sliced file"
+                // by default for a printer that takes a .gcode.3mf and has no host.
+                if (state.exportsSlicedFile) {
+                    OrcaButton(
+                        text = orcaString("Export plate sliced file"),
+                        onClick = { slicedExport.nameError()?.let { nameError = it } ?: slicedPicker.launch(slicedExport.name()) },
+                        enabled = slicedFileReady,
+                        modifier = Modifier.weight(1f),
                     )
                 } else {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        // The print button's exports: "Export G-code file", or "Export plate sliced file"
-                        // by default for a printer that takes a .gcode.3mf and has no host.
-                        if (state.exportsSlicedFile) {
-                            OrcaButton(
-                                text = orcaString("Export plate sliced file"),
-                                onClick = { slicedExport.nameError()?.let { nameError = it } ?: slicedPicker.launch(slicedExport.name()) },
-                                enabled = slicedFileReady,
-                                modifier = Modifier.weight(1f),
-                            )
-                        } else {
-                            OrcaButton(
-                                text = stringResource(UiR.string.gcode_save),
-                                onClick = { gcodeNameError()?.let { nameError = it } ?: gcodePicker.launch(gcodeName()) },
-                                enabled = sliceValid,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        if (state.printAllSupported) {
-                            // A Bambu Lab printer sent to SimplyPrint: "Print plate" or "Print all", as the drop-down chose.
-                            OrcaSplitButton(
-                                text = orcaString(if (printSelectAll) "Print all" else "Print plate"),
-                                onClick = {
-                                    sendingAll = printSelectAll
-                                    send()
-                                },
-                                menuDescription = orcaString("Print plate") + ", " + orcaString("Print all"),
-                                enabled = if (printSelectAll) state.allReadyForPrint else printPlateEnabled,
-                                menu = { dismiss ->
-                                    listOf(false, true).forEach { all ->
-                                        OrcaMenuCheckItem(
-                                            text = orcaString(if (all) "Print all" else "Print plate"),
-                                            checked = all == printSelectAll,
-                                            onClick = {
-                                                dismiss()
-                                                printSelectAll = all
-                                            },
-                                        )
-                                    }
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(start = 8.dp),
-                            )
-                        } else {
-                            OrcaButton(
-                                text = stringResource(UiR.string.printer_host_send),
-                                onClick = {
-                                    sendingAll = false
-                                    send()
-                                },
-                                enabled = printPlateEnabled,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(start = 8.dp),
-                            )
-                        }
-                        if (uploadJobs.isNotEmpty()) {
-                            PrintHostQueueButton(uploadJobs, onClick = { queueShown = true }, modifier = Modifier.padding(start = 4.dp))
-                        }
-                        // Android's share sheet, the phone's way of handing the file to another app.
-                        OrcaIconButton(
-                            icon = DesignR.drawable.app_share,
-                            contentDescription = stringResource(UiR.string.share),
-                            onClick = { scope.launch { onShareGcode()?.let { context.shareDocument(it, GCODE_MIME_TYPE) } } },
-                            enabled = sliceValid,
-                            modifier = Modifier.padding(start = 4.dp),
-                        )
-                    }
+                    OrcaButton(
+                        text = stringResource(UiR.string.gcode_save),
+                        onClick = { gcodeNameError()?.let { nameError = it } ?: gcodePicker.launch(gcodeName()) },
+                        enabled = sliceValid,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
-                ToolpathsSheet(
-                    view = view,
-                    statistics = shown.statistics,
-                    imperial = canvas.imperialUnits,
-                    onViewTypeChange = shown::setViewType,
-                    onRoleVisibleChange = shown::setRoleVisible,
-                    onOptionVisibleChange = shown::setOptionVisible,
-                    gcodeWindow = canvas.gcodeWindow,
-                    onGcodeWindowChange = { onSetCanvas(AppConfigKeys.SHOW_GCODE_WINDOW, it.toString()) },
-                    layerGcodes = state.layerGcodes,
-                    onTimeModeChange = shown::setTimeMode,
-                    // m_only_gcode_in_preview: the presets the G-code names.
-                    gcodeSettings = result?.settingsIds?.takeIf { state.previewOnly == PreviewOnlyKind.GCODE },
+                if (state.printAllSupported) {
+                    // A Bambu Lab printer sent to SimplyPrint: "Print plate" or "Print all", as the drop-down chose.
+                    OrcaSplitButton(
+                        text = orcaString(if (printSelectAll) "Print all" else "Print plate"),
+                        onClick = {
+                            sendingAll = printSelectAll
+                            send()
+                        },
+                        menuDescription = orcaString("Print plate") + ", " + orcaString("Print all"),
+                        enabled = if (printSelectAll) state.allReadyForPrint else printPlateEnabled,
+                        menu = { dismiss ->
+                            listOf(false, true).forEach { all ->
+                                OrcaMenuCheckItem(
+                                    text = orcaString(if (all) "Print all" else "Print plate"),
+                                    checked = all == printSelectAll,
+                                    onClick = {
+                                        dismiss()
+                                        printSelectAll = all
+                                    },
+                                )
+                            }
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp),
+                    )
+                } else {
+                    OrcaButton(
+                        text = stringResource(UiR.string.printer_host_send),
+                        onClick = {
+                            sendingAll = false
+                            send()
+                        },
+                        enabled = printPlateEnabled,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp),
+                    )
+                }
+                if (uploadJobs.isNotEmpty()) {
+                    PrintHostQueueButton(uploadJobs, onClick = { queueShown = true }, modifier = Modifier.padding(start = 4.dp))
+                }
+                // Android's share sheet, the phone's way of handing the file to another app.
+                OrcaIconButton(
+                    icon = DesignR.drawable.app_share,
+                    contentDescription = stringResource(UiR.string.share),
+                    onClick = { scope.launch { onShareGcode()?.let { context.shareDocument(it, GCODE_MIME_TYPE) } } },
+                    enabled = sliceValid,
+                    modifier = Modifier.padding(start = 4.dp),
                 )
             }
-        },
-        sheetPeekHeight = peek,
-        sheetShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        sheetContainerColor = OrcaTheme.colors.window,
-        sheetContentColor = OrcaTheme.colors.text,
-        sheetShadowElevation = 8.dp,
-        sheetDragHandle = null,
-        containerColor = Color.Transparent,
-    ) {
-        OrcaCanvas(Modifier.fillMaxSize()) {
+        }
+    }
+    // A wide canvas: the size of the navigator and its buttons in the top right corner, which
+    // the layer slider and the notifications keep clear of, where the plate bar ends, under
+    // which the legend stands, and whether the legend is folded away.
+    var navigatorSize by remember { mutableStateOf(IntSize.Zero) }
+    var plateBarBottom by remember { mutableIntStateOf(0) }
+    var legendExpanded by rememberSaveable { mutableStateOf(true) }
+    val density = LocalDensity.current
+    val navigatorWidth = with(density) { navigatorSize.width.toDp() }
+    val navigatorHeight = with(density) { navigatorSize.height.toDp() }
+    // A wide canvas with the height for it: the legend at its side instead of the sheet.
+    val legendBeside = layout.wide && tall
+    val canvasContent: @Composable () -> Unit = {
+        OrcaCanvas(Modifier.fillMaxSize().shortcutCanvas(shortcutCanvas)) {
             // Previews have no OpenGL; they show the canvas colour.
             if (!inspection) {
                 PlateView(
@@ -594,19 +610,16 @@ internal fun PreviewScreen(
                     onPerspectiveChange = { onSetCanvas(AppConfigKeys.USE_PERSPECTIVE_CAMERA, it.toString()) },
                     camera = viewCamera,
                     smoothNormals = canvas.realistic && canvas.smoothNormals,
+                    onPress = shortcutCanvas::requestFocus,
                 )
                 // The 3D navigator and the canvas toolbar (View menu and zoom button) under it; the layer
                 // slider takes the right side and the legend and the move slider the bottom, so they stand
-                // under the sidebar's button.
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-                        .padding(start = 12.dp, top = 56.dp),
-                ) {
-                    if (canvas.navigator) PlateNavigator(viewCamera, navigatorFaceLabels())
+                // under the sidebar's button. A wide canvas has the legend at the left, and them in the
+                // top right corner as on the Prepare page, the buttons beside the navigator as OrcaSlicer
+                // sets them (GLCanvas3D::_render_canvas_toolbar() at m_canvas_toolbar_pos), the layer
+                // slider under them.
+                val navigator: @Composable () -> Unit = { if (canvas.navigator) PlateNavigator(viewCamera, navigatorFaceLabels()) }
+                val viewButtons: @Composable () -> Unit = {
                     CanvasViewButtons(
                         canvas = canvas,
                         onView = { view -> if (view == null) viewCamera.defaultView() else viewCamera.selectView(view) },
@@ -618,6 +631,31 @@ internal fun PreviewScreen(
                         onZoom = viewCamera::zoomToFit,
                         preview = true,
                     )
+                }
+                if (legendBeside) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                            .padding(end = 12.dp, top = 12.dp)
+                            .onSizeChanged { navigatorSize = it },
+                    ) {
+                        viewButtons()
+                        navigator()
+                    }
+                } else {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                            .padding(start = 12.dp, top = 56.dp),
+                    ) {
+                        navigator()
+                        viewButtons()
+                    }
                 }
             }
             if (allPlatesShown) {
@@ -631,13 +669,23 @@ internal fun PreviewScreen(
             }
             // The notifications of the preview's canvas, under the plate bar, beside the
             // navigator and clear of the layer slider and of the label of its top layer.
+            // A wide canvas has them beside the navigator in the top right corner, over the
+            // legend where the canvas is too narrow for both.
             Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
+                horizontalAlignment = if (legendBeside) Alignment.End else Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-                    .padding(start = 96.dp, end = 72.dp, top = 112.dp),
+                modifier = if (legendBeside) {
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .zIndex(1f)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                        .padding(start = OrcaSidebarToggleSpace, end = navigatorWidth + 24.dp, top = 12.dp)
+                } else {
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                        .padding(start = 96.dp, end = 72.dp, top = 112.dp)
+                },
             ) {
                 val showHints = canvas.showHints
                 val keepHints = { on: Boolean -> onSetCanvas(AppConfigKeys.SHOW_HINTS, on.toString()) }
@@ -722,7 +770,8 @@ internal fun PreviewScreen(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-                        .padding(start = OrcaSidebarToggleSpace, top = 12.dp),
+                        .padding(start = OrcaSidebarToggleSpace, top = 12.dp)
+                        .onGloballyPositioned { plateBarBottom = it.boundsInParent().bottom.roundToInt() },
                     leading = allPlates?.let { stats ->
                         { AllPlatesItem(stats, enabled = state.canSliceAll, onClick = onShowAllPlates) }
                     },
@@ -765,7 +814,36 @@ internal fun PreviewScreen(
                 shown != null && view != null -> ToolpathsControls(
                     layer = shown,
                     view = view,
-                    bottomInset = peek,
+                    // A wide canvas has no sheet: the controls keep clear of the navigation bar alone.
+                    bottomInset = if (legendBeside) navigationBar else peek,
+                    wide = layout.wide,
+                    topInset = if (legendBeside && navigatorSize.height > 0) navigatorHeight + 12.dp else 0.dp,
+                    // The legend at the left under the plate bar, or under the sidebar's button.
+                    legend = if (legendBeside) {
+                        { legendModifier ->
+                            ToolpathsLegendPanel(
+                                view = view,
+                                statistics = shown.statistics,
+                                imperial = canvas.imperialUnits,
+                                onViewTypeChange = shown::setViewType,
+                                onRoleVisibleChange = shown::setRoleVisible,
+                                onOptionVisibleChange = shown::setOptionVisible,
+                                expanded = legendExpanded,
+                                onExpandedChange = { legendExpanded = it },
+                                modifier = legendModifier,
+                                gcodeWindow = canvas.gcodeWindow,
+                                onGcodeWindowChange = { onSetCanvas(AppConfigKeys.SHOW_GCODE_WINDOW, it.toString()) },
+                                layerGcodes = state.layerGcodes,
+                                onTimeModeChange = shown::setTimeMode,
+                                // m_only_gcode_in_preview: the presets the G-code names.
+                                gcodeSettings = result.settingsIds?.takeIf { state.previewOnly == PreviewOnlyKind.GCODE },
+                                actions = printActions,
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                    legendTop = if (state.plateBar) with(density) { plateBarBottom.toDp() } + 8.dp else OrcaSidebarToggleSpace,
                     layerGcodes = LayerGcodeUi(
                         codes = state.layerGcodes,
                         rules = result.layerGcodeRules,
@@ -799,8 +877,8 @@ internal fun PreviewScreen(
 
                 shown == null -> Column(
                     modifier = Modifier
-                        .align(if (layout == OrcaWindowLayout.Wide) Alignment.BottomStart else Alignment.BottomCenter)
-                        .then(if (layout == OrcaWindowLayout.Wide) Modifier.widthIn(max = 480.dp) else Modifier),
+                        .align(if (layout.wide) Alignment.BottomStart else Alignment.BottomCenter)
+                        .then(if (layout.wide) Modifier.widthIn(max = 480.dp) else Modifier),
                 ) {
                     SlicedInfo(result = result)
                     // PrintHost::upload: the G-code goes to a printer of the user.
@@ -820,6 +898,41 @@ internal fun PreviewScreen(
                     }
                 }
             }
+        }
+    }
+
+    if (legendBeside) {
+        canvasContent()
+    } else {
+        BottomSheetScaffold(
+            sheetContent = {
+                if (shown != null && view != null) {
+                    printActions()
+                    ToolpathsSheet(
+                        view = view,
+                        statistics = shown.statistics,
+                        imperial = canvas.imperialUnits,
+                        onViewTypeChange = shown::setViewType,
+                        onRoleVisibleChange = shown::setRoleVisible,
+                        onOptionVisibleChange = shown::setOptionVisible,
+                        gcodeWindow = canvas.gcodeWindow,
+                        onGcodeWindowChange = { onSetCanvas(AppConfigKeys.SHOW_GCODE_WINDOW, it.toString()) },
+                        layerGcodes = state.layerGcodes,
+                        onTimeModeChange = shown::setTimeMode,
+                        // m_only_gcode_in_preview: the presets the G-code names.
+                        gcodeSettings = result?.settingsIds?.takeIf { state.previewOnly == PreviewOnlyKind.GCODE },
+                    )
+                }
+            },
+            sheetPeekHeight = peek,
+            sheetShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            sheetContainerColor = OrcaTheme.colors.window,
+            sheetContentColor = OrcaTheme.colors.text,
+            sheetShadowElevation = 8.dp,
+            sheetDragHandle = null,
+            containerColor = Color.Transparent,
+        ) {
+            canvasContent()
         }
     }
 
@@ -946,9 +1059,9 @@ private fun PreviewCompactPreview() = OrcinusTheme {
     }
 }
 
-@Preview(name = "Wide", widthDp = 1000, heightDp = 640)
+@Preview(name = "Expanded", widthDp = 1000, heightDp = 640)
 @Composable
 private fun PreviewWidePreview() = OrcinusTheme {
-    PreviewScreen(PreviewUiState(plate = null, result = PreviewResult, canSlice = true), OrcaWindowLayout.Wide, onSlice = {})
+    PreviewScreen(PreviewUiState(plate = null, result = PreviewResult, canSlice = true), OrcaWindowLayout.Expanded, onSlice = {})
 }
 

@@ -79,6 +79,8 @@ import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarToggleSpace
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.component.OrcaUnderlineTabs
+import app.orcinus.shadow.core.designsystem.layout.OrcaPageWidth
+import app.orcinus.shadow.core.designsystem.layout.orcaContentWidth
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.AuxiliaryFile
 import app.orcinus.shadow.core.model.AuxiliaryFolder
@@ -177,7 +179,9 @@ private fun ProjectPage(info: ProjectInfo, onEdit: () -> Unit, onOpen: (Auxiliar
                 .verticalScroll(scroll)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
                 .padding(horizontal = 16.dp)
-                .padding(bottom = 16.dp),
+                .padding(bottom = 16.dp)
+                // The page's text keeps a readable width on a large window.
+                .orcaContentWidth(OrcaPageWidth.Text),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             Section({ sections[0] = it }) { ModelBasic(info, text) }
@@ -362,7 +366,9 @@ private fun ProjectEditor(state: ProjectUiState, viewModel: ProjectViewModel) {
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
-                .padding(16.dp),
+                .padding(16.dp)
+                // ProjectPanel's form keeps its fields to a form's width on a large window.
+                .orcaContentWidth(OrcaPageWidth.Text),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (state.editorTab == 0) {

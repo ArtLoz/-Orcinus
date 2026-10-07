@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaFilamentSlot
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.component.textLocale
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -47,9 +45,10 @@ import kotlin.math.roundToInt
  * the print changes from one filament to another, a volume per pair. The
  * desktop dialog is a table with a row and a column per filament; a phone shows
  * the same table, scrolled sideways when the plate has many filaments, with the
- * filament of every row and column marked by its colour.
+ * filament of every row and column marked by its colour. A larger window shows
+ * it as a dialog as wide as the table, as WipingDialog sizes itself to its
+ * table (at least FromDIP(350), the table at most FromDIP(1000)).
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun FlushVolumesSheet(
     volumes: FlushVolumes,
@@ -72,11 +71,9 @@ internal fun FlushVolumesSheet(
         onApply(matrix, factors)
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = theme.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    // WipingDialog: the table's width with the dialog's fixed overhead of FromDIP(100).
+    val dialogWidth = (HEADER_WIDTH + CELL_WIDTH * filaments).coerceAtMost(MAX_TABLE_WIDTH) + DIALOG_OVERHEAD
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = dialogWidth.coerceAtLeast(MIN_DIALOG_WIDTH)) {
         Column(
             Modifier
                 .navigationBarsPadding()
@@ -217,3 +214,8 @@ private const val MAX_MULTIPLIER = 3.0
 
 private val CELL_WIDTH = 72.dp
 private val HEADER_WIDTH = 40.dp
+
+/** WipingDialog's sizes: the table at most FromDIP(1000) wide, FromDIP(100) around it, the dialog at least FromDIP(350). */
+private val MAX_TABLE_WIDTH = 1000.dp
+private val DIALOG_OVERHEAD = 100.dp
+private val MIN_DIALOG_WIDTH = 350.dp

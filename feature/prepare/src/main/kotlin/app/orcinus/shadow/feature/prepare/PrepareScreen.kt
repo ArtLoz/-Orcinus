@@ -101,6 +101,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import app.orcinus.shadow.core.designsystem.component.OrcaComboBox
 import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
 import app.orcinus.shadow.core.designsystem.component.OrcaFilamentSlot
+import app.orcinus.shadow.core.designsystem.component.OrcaFittedCanvasToolbar
 import app.orcinus.shadow.core.designsystem.component.OrcaGizmoPanel
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaLink
@@ -117,6 +118,7 @@ import app.orcinus.shadow.core.designsystem.component.textLocale
 import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarToggleSpace
 import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
+import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowTall
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.AppConfigKeys
@@ -157,6 +159,7 @@ import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsItem
+import app.orcinus.shadow.core.model.ShortcutPage
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.SliceProgress
@@ -222,6 +225,8 @@ import app.orcinus.shadow.core.ui.plate.objectMenuState
 import app.orcinus.shadow.core.ui.plate.partMenuState
 import app.orcinus.shadow.core.ui.plate.volumeName
 import app.orcinus.shadow.core.ui.plate.volumesMenuState
+import app.orcinus.shadow.core.ui.shortcuts.rememberShortcutCanvas
+import app.orcinus.shadow.core.ui.shortcuts.shortcutCanvas
 import app.orcinus.shadow.render.scene.AssemblyView
 import app.orcinus.shadow.render.scene.BrimEarState
 import app.orcinus.shadow.render.scene.BrimEarView
@@ -350,6 +355,7 @@ internal fun PrepareRoute(
     PrepareScreen(
         state = state,
         layout = currentOrcaWindowLayout(),
+        tall = currentOrcaWindowTall(),
         onAddModel = { modelPicker.launch(arrayOf("*/*")) },
         onAddCalibrationCube = viewModel::addCalibrationCube,
         onSelectObject = viewModel::selectObject,
@@ -616,6 +622,7 @@ internal fun PrepareRoute(
             drawLine = viewModel::setCutLineDrawing,
             line = viewModel::cutLineEvent,
             reset = viewModel::resetCut,
+            shift = viewModel::shiftCutPlane,
             connectors = CutConnectorActions(
                 edit = viewModel::editCutConnectors,
                 confirm = viewModel::confirmCutConnectors,
@@ -882,8 +889,12 @@ internal fun PrepareScreen(
     onDoubleTap: () -> Unit = {},
     /** Documents dropped on the 3D view, with the copy at the drop and where it was hit, or the bed's point there. */
     onDropFiles: (documents: List<String>, copy: Int?, hit: SurfaceHit?, bedPoint: Point2?) -> Unit = { _, _, _, _ -> },
+    /** The window has the height for the gizmos' column of a wide canvas; a phone in landscape keeps one row. */
+    tall: Boolean = true,
 ) {
-    OrcaCanvas(Modifier.fillMaxSize()) {
+    // GLCanvas3D's wxGLCanvas, which holds the keyboard focus as the page shows and as it is pressed.
+    val shortcutCanvas = rememberShortcutCanvas(ShortcutPage.PREPARE)
+    OrcaCanvas(Modifier.fillMaxSize().shortcutCanvas(shortcutCanvas)) {
         val viewCamera = rememberPlateViewCamera()
         // PlaterDropTarget: documents another app drags onto the 3D view (split screen, a desktop
         // mode). The copy under the drop is the one a ray through it hits nearest the camera.
@@ -972,6 +983,37 @@ internal fun PrepareScreen(
             if (focused) sidebarField = field to axis else if (sidebarField == field to axis) sidebarField = null
         }
         val untitled = orcaString("Untitled")
+        // OrcaSlicer's keys on the canvas, through the actions the toolbar, the menus and the tools' windows run.
+        val shortcutActions = PrepareShortcutActions(
+            selectObject = onSelectObject,
+            deleteObject = onDeleteObject,
+            objectMenu = objectMenuActions,
+            paste = onPaste,
+            plateMenu = plateMenuActions,
+            plate = plateActions,
+            arrange = arrangeActions,
+            autoOrient = onAutoOrient,
+            addInstance = onAddInstance,
+            removeInstance = onRemoveInstance,
+            undo = onUndo,
+            redo = onRedo,
+            toggleGizmo = onToggleGizmo,
+            closeGizmo = onCloseGizmo,
+            togglePainting = onTogglePainting,
+            painting = paintingActions,
+            cut = cutActions,
+            text = textActions,
+            svg = svgActions,
+            measure = measureActions,
+            assembly = assemblyActions,
+            assemblyView = assemblyViewActions,
+            brimEars = brimEarsActions,
+            meshBoolean = meshBooleanActions,
+            simplify = simplifyActions,
+            setCanvas = onSetCanvas,
+            askClone = { cloning = it },
+        )
+        PrepareShortcuts(state, canvas, viewCamera, shortcutActions)
         // Previews have no OpenGL; they show the canvas colour.
         if (!LocalInspectionMode.current) {
             PlateView(
@@ -1069,8 +1111,15 @@ internal fun PrepareScreen(
                 orbitSpeed = canvas.orbitSpeed,
                 freeCamera = canvas.freeCamera,
                 zoomToFingers = canvas.zoomToMouse,
-                // The FPS overlay under the toolbar's left end; the navigator takes the top right corner.
-                graphics = PlateGraphics(canvas.fxaa, canvas.fpsCap, canvas.fpsOverlay, Alignment.TopStart, PaddingValues(top = CanvasNavigatorTop, start = CanvasMargin)),
+                // The FPS overlay under the toolbar's left end, beside the gizmos' column of a wide canvas;
+                // the navigator takes the top right corner.
+                graphics = PlateGraphics(
+                    canvas.fxaa,
+                    canvas.fpsCap,
+                    canvas.fpsOverlay,
+                    Alignment.TopStart,
+                    PaddingValues(top = CanvasNavigatorTop, start = if (layout.wide && tall) OrcaSidebarToggleSpace else CanvasMargin),
+                ),
                 options = PlateViewOptions(
                     perspective = canvas.perspective,
                     autoPerspective = canvas.autoPerspective,
@@ -1147,6 +1196,8 @@ internal fun PrepareScreen(
                 onGroupSphere = onGroupSphere,
                 selectedVolumeScale = state.volumeScale,
                 onPlaceVolume = onPlaceVolume,
+                onPress = shortcutCanvas::requestFocus,
+                onToolWheel = { wheel -> toolWheel(wheel, state, shortcutActions) },
             )
             state.measure?.editingDistance?.let { distance ->
                 MeasureScaleDialog(distance, canvas.imperialUnits, measureActions.scale, measureActions.cancelScale)
@@ -1338,16 +1389,11 @@ internal fun PrepareScreen(
             // OrcaSlicer's 3D navigator and canvas toolbar (the View menu and the zoom button) of its
             // bottom-left corner; a phone keeps them in the top right corner under the toolbar, as
             // mobile CAD apps place their view cube, clear of the plates, Undo and the slice button.
-            // The gizmo windows open over them.
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = CanvasNavigatorTop, end = CanvasMargin)
-                    .onGloballyPositioned { navigatorBottom = it.boundsInParent().bottom },
-            ) {
-                if (canvas.navigator) PlateNavigator(viewCamera, navigatorFaceLabels())
+            // A wide canvas sets the buttons beside the navigator, as OrcaSlicer does
+            // (GLCanvas3D::_render_canvas_toolbar() at m_canvas_toolbar_pos), and the preview
+            // keeps them in the same corner. The gizmo windows open over them.
+            val navigator: @Composable () -> Unit = { if (canvas.navigator) PlateNavigator(viewCamera, navigatorFaceLabels()) }
+            val viewButtons: @Composable () -> Unit = {
                 CanvasViewButtons(
                     canvas = canvas,
                     onView = { view -> if (view == null) viewCamera.defaultView() else viewCamera.selectView(view) },
@@ -1360,55 +1406,115 @@ internal fun PrepareScreen(
                     assembly = state.assemblyView != null,
                 )
             }
+            val navigatorModifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = CanvasNavigatorTop, end = CanvasMargin)
+                .onGloballyPositioned { navigatorBottom = it.boundsInParent().bottom }
+            if (layout.wide) {
+                Row(navigatorModifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    viewButtons()
+                    navigator()
+                }
+            } else {
+                Column(navigatorModifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    navigator()
+                    viewButtons()
+                }
+            }
+            // A wide canvas lays its toolbars out as OrcaSlicer's: the main toolbar along the top
+            // (GLCanvas3D::_render_main_toolbar()) and the gizmos down the left edge under the sidebar
+            // button, as GLGizmosManager stands without BBS_TOOLBAR_ON_TOP, and a gizmo's window at the
+            // top beside them, as GLGizmoBase::render_input_window() opens it by the toolbar. A phone
+            // has them all in one row.
+            val toolColumn = layout.wide && tall && state.assemblyView == null
+            val gizmoTools: @Composable () -> Unit = {
+                GizmoTools(
+                    state,
+                    onTogglePainting,
+                    onToggleGizmo,
+                    onToggleCut = cutActions.toggle,
+                    onToggleText = {
+                        // GLGizmoEmboss::on_shortcut_key(): on the selected copy, where its volume nearest the view's centre is hit.
+                        val hit = state.selectedObject?.let { viewCamera.surfaceHit(it) }
+                        textActions.toggle(hit, viewCamera.bedPoint(), defaultText)
+                    },
+                    onToggleMeasure = measureActions.toggle,
+                    onToggleBrimEars = brimEarsActions.toggle,
+                    onToggleMeshBoolean = meshBooleanActions.toggle,
+                    onToggleAssembly = assemblyActions.toggle,
+                )
+            }
+            val canvasToolbar: @Composable (Modifier) -> Unit = { toolbarModifier ->
+                CanvasToolbar(
+                    state,
+                    onAddModel,
+                    onAddCalibrationCube,
+                    plateActions.add,
+                    onAutoOrient,
+                    onAddInstance,
+                    onRemoveInstance,
+                    onSplit = { edit -> state.selectedObject?.let { objectMenuActions.edit(it, edit) } },
+                    arrangeActions.toggle,
+                    onToggleLayerEditing = layerActions.toggle,
+                    gizmoTools = gizmoTools.takeUnless { toolColumn },
+                    onOpenAssemblyView = assemblyViewActions.open,
+                    selectionMode = selectionMode,
+                    onToggleSelectionMode = { selectionMode = !selectionMode },
+                    fitted = toolColumn,
+                    modifier = toolbarModifier,
+                )
+            }
+            if (toolColumn) {
+                canvasToolbar(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 12.dp, start = OrcaSidebarToggleSpace, end = CanvasMargin)
+                        .onGloballyPositioned { topControlsBottom = it.boundsInParent().bottom },
+                )
+                // Centred under the sidebar button, and down to the bottom, as the plates and Undo stand beside it.
+                OrcaFittedCanvasToolbar(
+                    vertical = true,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(
+                            start = (OrcaSidebarToggleSpace - OrcaTheme.dimensions.minimumTouchTarget) / 2,
+                            top = OrcaSidebarToggleSpace,
+                            bottom = CanvasMargin,
+                        ),
+                    content = gizmoTools,
+                )
+            }
             Column(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
+                    .align(if (toolColumn) Alignment.TopStart else Alignment.TopCenter)
                     // A tool's window stands over the notifications, which its
                     // buttons would otherwise lie under on a phone.
                     .zIndex(1f)
-                    .padding(top = 12.dp, start = CanvasMargin, end = CanvasMargin)
-                    .onGloballyPositioned { topControlsBottom = it.boundsInParent().bottom },
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .padding(
+                        top = if (toolColumn) CanvasNavigatorTop else 12.dp,
+                        start = if (toolColumn) OrcaSidebarToggleSpace else CanvasMargin,
+                        end = CanvasMargin,
+                    )
+                    .onGloballyPositioned { if (!toolColumn) topControlsBottom = it.boundsInParent().bottom },
+                horizontalAlignment = if (toolColumn) Alignment.Start else Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 // The toolbar starts after the sidebar button; the gizmo windows below may use the whole width.
-                Box(Modifier.padding(start = OrcaSidebarToggleSpace - CanvasMargin)) {
-                    if (state.assemblyView != null) {
-                        AssemblyViewToolbar(
-                            state,
-                            assemblyViewActions,
-                            onToggleGizmo,
-                            onToggleMeasure = measureActions.toggle,
-                            onToggleAssembly = assemblyActions.toggle,
-                            onTogglePainting = onTogglePainting,
-                        )
-                    } else CanvasToolbar(
-                        state,
-                        onTogglePainting,
-                        onAddModel,
-                        onAddCalibrationCube,
-                        plateActions.add,
-                        onAutoOrient,
-                        onAddInstance,
-                        onRemoveInstance,
-                        onSplit = { edit -> state.selectedObject?.let { objectMenuActions.edit(it, edit) } },
-                        arrangeActions.toggle,
-                        onToggleGizmo,
-                        onToggleCut = cutActions.toggle,
-                        onToggleLayerEditing = layerActions.toggle,
-                        onToggleText = {
-                            // GLGizmoEmboss::on_shortcut_key(): on the selected copy, where its volume nearest the view's centre is hit.
-                            val hit = state.selectedObject?.let { viewCamera.surfaceHit(it) }
-                            textActions.toggle(hit, viewCamera.bedPoint(), defaultText)
-                        },
-                        onToggleMeasure = measureActions.toggle,
-                        onToggleBrimEars = brimEarsActions.toggle,
-                        onToggleMeshBoolean = meshBooleanActions.toggle,
-                        onToggleAssembly = assemblyActions.toggle,
-                        onOpenAssemblyView = assemblyViewActions.open,
-                        selectionMode = selectionMode,
-                        onToggleSelectionMode = { selectionMode = !selectionMode },
-                    )
+                if (!toolColumn) {
+                    Box(Modifier.padding(start = OrcaSidebarToggleSpace - CanvasMargin)) {
+                        if (state.assemblyView != null) {
+                            AssemblyViewToolbar(
+                                state,
+                                assemblyViewActions,
+                                onToggleGizmo,
+                                onToggleMeasure = measureActions.toggle,
+                                onToggleAssembly = assemblyActions.toggle,
+                                onTogglePainting = onTogglePainting,
+                            )
+                        } else {
+                            canvasToolbar(Modifier)
+                        }
+                    }
                 }
                 // _render_paint_toolbar(): the assembly view's filament buttons.
                 if (state.assemblyView != null) AssemblyPaintToolbar(state, assemblyViewActions.fillColor)
@@ -1520,11 +1626,12 @@ internal fun PrepareScreen(
             // The plates and Undo at the bottom left, the notifications and the
             // slice button beside them at the bottom right, never over each other;
             // the assembly view's controls over them (_render_assemble_control()).
+            // Beside the gizmos' column of a wide canvas.
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
-                    .padding(12.dp)
+                    .padding(start = if (toolColumn) OrcaSidebarToggleSpace else 12.dp, top = 12.dp, end = 12.dp, bottom = 12.dp)
                     .onGloballyPositioned { bottomControlsTop = it.boundsInParent().top },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -2278,12 +2385,13 @@ private fun ObjectInfoNotification(info: ObjectInfo, imperial: Boolean, onRepair
  * (GLCanvas3D::_init_main_toolbar), a separator, the gizmos a single-filament
  * FFF printer shows (GLGizmosManager::get_selectable_idxs), a separator, and
  * the assembly view toolbar. The calibration cube follows Add. Tools whose
- * features the app does not have yet stay disabled.
+ * features the app does not have yet stay disabled. The [gizmoTools] stand
+ * in their own column on a wide canvas, and the row then shrinks its tools to
+ * fit ([fitted]).
  */
 @Composable
 private fun CanvasToolbar(
     state: PrepareUiState,
-    onTogglePainting: (PaintKind) -> Unit,
     onAddModel: () -> Unit,
     onAddCalibrationCube: () -> Unit,
     onAddPlate: () -> Unit,
@@ -2292,17 +2400,129 @@ private fun CanvasToolbar(
     onRemoveInstance: () -> Unit,
     onSplit: (ObjectEdit) -> Unit,
     onToggleArrange: () -> Unit,
-    onToggleGizmo: (PlateGizmo) -> Unit,
-    onToggleCut: () -> Unit = {},
+    modifier: Modifier = Modifier,
     onToggleLayerEditing: () -> Unit = {},
-    onToggleText: () -> Unit = {},
-    onToggleMeasure: () -> Unit = {},
-    onToggleBrimEars: () -> Unit = {},
-    onToggleMeshBoolean: () -> Unit = {},
-    onToggleAssembly: () -> Unit = {},
+    gizmoTools: (@Composable () -> Unit)? = null,
     onOpenAssemblyView: () -> Unit = {},
     selectionMode: Boolean = false,
     onToggleSelectionMode: () -> Unit = {},
+    fitted: Boolean = false,
+) {
+    if (fitted) {
+        OrcaFittedCanvasToolbar(vertical = false, modifier = modifier) {
+            MainTools(
+                state, onAddModel, onAddCalibrationCube, onAddPlate, onAutoOrient, onAddInstance, onRemoveInstance, onSplit, onToggleArrange,
+                onToggleLayerEditing, gizmoTools, onOpenAssemblyView, selectionMode, onToggleSelectionMode,
+            )
+        }
+    } else {
+        OrcaCanvasToolbar(modifier) {
+            MainTools(
+                state, onAddModel, onAddCalibrationCube, onAddPlate, onAutoOrient, onAddInstance, onRemoveInstance, onSplit, onToggleArrange,
+                onToggleLayerEditing, gizmoTools, onOpenAssemblyView, selectionMode, onToggleSelectionMode,
+            )
+        }
+    }
+}
+
+/** The tools of [CanvasToolbar], in a row of either kind. */
+@Composable
+private fun MainTools(
+    state: PrepareUiState,
+    onAddModel: () -> Unit,
+    onAddCalibrationCube: () -> Unit,
+    onAddPlate: () -> Unit,
+    onAutoOrient: () -> Unit,
+    onAddInstance: () -> Unit,
+    onRemoveInstance: () -> Unit,
+    onSplit: (ObjectEdit) -> Unit,
+    onToggleArrange: () -> Unit,
+    onToggleLayerEditing: () -> Unit,
+    gizmoTools: (@Composable () -> Unit)?,
+    onOpenAssemblyView: () -> Unit,
+    selectionMode: Boolean,
+    onToggleSelectionMode: () -> Unit,
+) {
+    // A phone's Ctrl and Shift for the canvas's selection: a tap adds a copy or takes it out,
+    // and a finger over empty space draws the selection rectangle (GLSelectionRectangle).
+    OrcaCanvasTool(
+        icon = R.drawable.selection_mode,
+        contentDescription = stringResource(R.string.toolbar_selection_mode),
+        onClick = onToggleSelectionMode,
+        selected = selectionMode,
+    )
+    OrcaCanvasToolbarSeparator()
+    OrcaCanvasTool(DesignR.drawable.orca_toolbar_open, stringResource(R.string.add_model), onAddModel, enabled = state.canEditPlate)
+    OrcaCanvasTool(DesignR.drawable.orca_tab_3d_active, stringResource(R.string.add_calibration_cube), onAddCalibrationCube, enabled = state.canEditPlate)
+    OrcaCanvasTool(DesignR.drawable.orca_toolbar_add_plate, stringResource(R.string.toolbar_add_plate), onAddPlate, enabled = state.canAddPlate)
+    OrcaCanvasTool(DesignR.drawable.orca_toolbar_orient, stringResource(R.string.toolbar_orient), onAutoOrient, enabled = state.canArrange)
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_toolbar_arrange,
+        contentDescription = stringResource(R.string.toolbar_arrange),
+        onClick = onToggleArrange,
+        enabled = state.canArrange,
+        selected = state.arrangeOptionsOpen,
+    )
+    OrcaCanvasToolbarSeparator()
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_instance_add,
+        contentDescription = stringResource(R.string.toolbar_add_instance),
+        onClick = onAddInstance,
+        enabled = state.canCopy,
+    )
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_instance_remove,
+        contentDescription = stringResource(R.string.toolbar_remove_instance),
+        onClick = onRemoveInstance,
+        enabled = state.canRemoveCopy,
+    )
+    // Plater::split_object() and split_volume() of the selected object.
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_split_objects,
+        contentDescription = stringResource(R.string.toolbar_split_objects),
+        onClick = { onSplit(ObjectEdit.SPLIT_TO_OBJECTS) },
+        enabled = state.canSplitToObjects,
+    )
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_split_parts,
+        contentDescription = stringResource(R.string.toolbar_split_parts),
+        onClick = { onSplit(ObjectEdit.SPLIT_TO_PARTS) },
+        enabled = state.canSplitToParts,
+    )
+    // Plater::can_layers_editing(): one object selected, standing above the bed.
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_toolbar_variable_layer_height,
+        contentDescription = stringResource(R.string.toolbar_variable_layer_height),
+        onClick = onToggleLayerEditing,
+        enabled = state.canEditLayers || state.layerEditing != null,
+        selected = state.layerEditing != null,
+    )
+    gizmoTools?.let { tools ->
+        OrcaCanvasToolbarSeparator()
+        tools()
+    }
+    OrcaCanvasToolbarSeparator()
+    // The assembly view toolbar's "Assembly View" (EVT_GLVIEWTOOLBAR_ASSEMBLE), which Plater::has_assmeble_view() enables.
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_toolbar_assemble,
+        contentDescription = stringResource(R.string.toolbar_assembly_view),
+        onClick = onOpenAssemblyView,
+        enabled = state.canOpenAssemblyView,
+    )
+}
+
+/** The gizmos a single-filament FFF printer shows (GLGizmosManager::get_selectable_idxs), in a row or a column. */
+@Composable
+private fun GizmoTools(
+    state: PrepareUiState,
+    onTogglePainting: (PaintKind) -> Unit,
+    onToggleGizmo: (PlateGizmo) -> Unit,
+    onToggleCut: () -> Unit,
+    onToggleText: () -> Unit,
+    onToggleMeasure: () -> Unit,
+    onToggleBrimEars: () -> Unit,
+    onToggleMeshBoolean: () -> Unit,
+    onToggleAssembly: () -> Unit,
 ) {
     @Composable
     fun gizmo(icon: Int, name: Int, gizmo: PlateGizmo?) = OrcaCanvasTool(
@@ -2313,161 +2533,96 @@ private fun CanvasToolbar(
         selected = gizmo != null && state.gizmo == gizmo,
     )
 
-    OrcaCanvasToolbar {
-        // A phone's Ctrl and Shift for the canvas's selection: a tap adds a copy or takes it out,
-        // and a finger over empty space draws the selection rectangle (GLSelectionRectangle).
+    gizmo(DesignR.drawable.orca_toolbar_move, R.string.gizmo_move, PlateGizmo.MOVE)
+    gizmo(DesignR.drawable.orca_toolbar_rotate, R.string.gizmo_rotate, PlateGizmo.ROTATE)
+    gizmo(DesignR.drawable.orca_toolbar_scale, R.string.gizmo_scale, PlateGizmo.SCALE)
+    gizmo(DesignR.drawable.orca_toolbar_flatten, R.string.gizmo_lay_on_face, PlateGizmo.LAY_ON_FACE)
+    // GLGizmoCut3D: on_is_activable() is a single full instance selected,
+    // but for the dowel a cut made an object of; simple mode has no Cut.
+    if (state.cutSelectable) {
         OrcaCanvasTool(
-            icon = R.drawable.selection_mode,
-            contentDescription = stringResource(R.string.toolbar_selection_mode),
-            onClick = onToggleSelectionMode,
-            selected = selectionMode,
-        )
-        OrcaCanvasToolbarSeparator()
-        OrcaCanvasTool(DesignR.drawable.orca_toolbar_open, stringResource(R.string.add_model), onAddModel, enabled = state.canEditPlate)
-        OrcaCanvasTool(DesignR.drawable.orca_tab_3d_active, stringResource(R.string.add_calibration_cube), onAddCalibrationCube, enabled = state.canEditPlate)
-        OrcaCanvasTool(DesignR.drawable.orca_toolbar_add_plate, stringResource(R.string.toolbar_add_plate), onAddPlate, enabled = state.canAddPlate)
-        OrcaCanvasTool(DesignR.drawable.orca_toolbar_orient, stringResource(R.string.toolbar_orient), onAutoOrient, enabled = state.canArrange)
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_toolbar_arrange,
-            contentDescription = stringResource(R.string.toolbar_arrange),
-            onClick = onToggleArrange,
-            enabled = state.canArrange,
-            selected = state.arrangeOptionsOpen,
-        )
-        OrcaCanvasToolbarSeparator()
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_instance_add,
-            contentDescription = stringResource(R.string.toolbar_add_instance),
-            onClick = onAddInstance,
-            enabled = state.canCopy,
-        )
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_instance_remove,
-            contentDescription = stringResource(R.string.toolbar_remove_instance),
-            onClick = onRemoveInstance,
-            enabled = state.canRemoveCopy,
-        )
-        // Plater::split_object() and split_volume() of the selected object.
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_split_objects,
-            contentDescription = stringResource(R.string.toolbar_split_objects),
-            onClick = { onSplit(ObjectEdit.SPLIT_TO_OBJECTS) },
-            enabled = state.canSplitToObjects,
-        )
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_split_parts,
-            contentDescription = stringResource(R.string.toolbar_split_parts),
-            onClick = { onSplit(ObjectEdit.SPLIT_TO_PARTS) },
-            enabled = state.canSplitToParts,
-        )
-        // Plater::can_layers_editing(): one object selected, standing above the bed.
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_toolbar_variable_layer_height,
-            contentDescription = stringResource(R.string.toolbar_variable_layer_height),
-            onClick = onToggleLayerEditing,
-            enabled = state.canEditLayers || state.layerEditing != null,
-            selected = state.layerEditing != null,
-        )
-        OrcaCanvasToolbarSeparator()
-        gizmo(DesignR.drawable.orca_toolbar_move, R.string.gizmo_move, PlateGizmo.MOVE)
-        gizmo(DesignR.drawable.orca_toolbar_rotate, R.string.gizmo_rotate, PlateGizmo.ROTATE)
-        gizmo(DesignR.drawable.orca_toolbar_scale, R.string.gizmo_scale, PlateGizmo.SCALE)
-        gizmo(DesignR.drawable.orca_toolbar_flatten, R.string.gizmo_lay_on_face, PlateGizmo.LAY_ON_FACE)
-        // GLGizmoCut3D: on_is_activable() is a single full instance selected,
-        // but for the dowel a cut made an object of; simple mode has no Cut.
-        if (state.cutSelectable) {
-            OrcaCanvasTool(
-                icon = DesignR.drawable.orca_toolbar_cut,
-                contentDescription = stringResource(R.string.gizmo_cut),
-                onClick = onToggleCut,
-                enabled = state.canCut,
-                selected = state.cut != null,
-            )
-        }
-        // GLGizmoMeshBoolean: two volumes of the selected copy joined, subtracted or intersected.
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_toolbar_meshboolean,
-            contentDescription = stringResource(R.string.gizmo_mesh_boolean),
-            onClick = onToggleMeshBoolean,
-            enabled = state.canMeshBoolean || state.meshBoolean != null,
-            selected = state.meshBoolean != null,
-        )
-        // GLGizmoFdmSupports: supports are enforced or blocked where they are painted.
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_toolbar_support,
-            contentDescription = stringResource(R.string.gizmo_support_painting),
-            onClick = { onTogglePainting(PaintKind.SUPPORTS) },
-            enabled = state.canPaintFacets,
-            selected = state.painting?.kind == PaintKind.SUPPORTS,
-        )
-        // GLGizmoSeam: the seam is enforced or blocked where it is painted.
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_toolbar_seam,
-            contentDescription = stringResource(R.string.gizmo_seam_painting),
-            onClick = { onTogglePainting(PaintKind.SEAM) },
-            enabled = state.canPaintFacets,
-            selected = state.painting?.kind == PaintKind.SEAM,
-        )
-        // GLGizmoFuzzySkin: the walls get fuzzy skin where it is painted.
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_toolbar_fuzzy_skin_paint,
-            contentDescription = stringResource(R.string.gizmo_fuzzy_skin_painting),
-            onClick = { onTogglePainting(PaintKind.FUZZY_SKIN) },
-            enabled = state.canPaintFacets,
-            selected = state.painting?.kind == PaintKind.FUZZY_SKIN,
-        )
-        // GLGizmoMmuSegmentation: the object is painted with the filaments of the plate;
-        // on_is_selectable(): the toolbar has it with more than one filament.
-        if (state.filamentColors.size > 1) {
-            OrcaCanvasTool(
-                icon = DesignR.drawable.orca_mmu_segmentation,
-                contentDescription = stringResource(R.string.gizmo_color_painting),
-                onClick = { onTogglePainting(PaintKind.COLOR) },
-                enabled = state.canPaint,
-                selected = state.painting?.kind == PaintKind.COLOR,
-            )
-        }
-        // GLGizmoEmboss: the tool opens on the selected text, or adds a text.
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_toolbar_text,
-            contentDescription = stringResource(R.string.gizmo_emboss),
-            onClick = onToggleText,
-            enabled = state.canEditPlate,
-            selected = state.text != null,
-        )
-        // GLGizmoMeasure: the selected volumes are measured.
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_toolbar_measure,
-            contentDescription = stringResource(R.string.gizmo_measure),
-            onClick = onToggleMeasure,
-            enabled = state.canMeasure,
-            selected = state.measure != null && state.measure.assembly == null,
-        )
-        // GLGizmoAssembly: two selected volumes are assembled.
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_toolbar_assembly,
-            contentDescription = stringResource(R.string.gizmo_assembly),
-            onClick = onToggleAssembly,
-            enabled = state.canAssemble,
-            selected = state.measure?.assembly != null,
-        )
-        // GLGizmoBrimEars: ears of the brim placed under the selected copy.
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_toolbar_brimears,
-            contentDescription = stringResource(R.string.gizmo_brim_ears),
-            onClick = onToggleBrimEars,
-            enabled = state.canEditBrimEars,
-            selected = state.brimEars != null,
-        )
-        OrcaCanvasToolbarSeparator()
-        // The assembly view toolbar's "Assembly View" (EVT_GLVIEWTOOLBAR_ASSEMBLE), which Plater::has_assmeble_view() enables.
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_toolbar_assemble,
-            contentDescription = stringResource(R.string.toolbar_assembly_view),
-            onClick = onOpenAssemblyView,
-            enabled = state.canOpenAssemblyView,
+            icon = DesignR.drawable.orca_toolbar_cut,
+            contentDescription = stringResource(R.string.gizmo_cut),
+            onClick = onToggleCut,
+            enabled = state.canCut,
+            selected = state.cut != null,
         )
     }
+    // GLGizmoMeshBoolean: two volumes of the selected copy joined, subtracted or intersected.
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_toolbar_meshboolean,
+        contentDescription = stringResource(R.string.gizmo_mesh_boolean),
+        onClick = onToggleMeshBoolean,
+        enabled = state.canMeshBoolean || state.meshBoolean != null,
+        selected = state.meshBoolean != null,
+    )
+    // GLGizmoFdmSupports: supports are enforced or blocked where they are painted.
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_toolbar_support,
+        contentDescription = stringResource(R.string.gizmo_support_painting),
+        onClick = { onTogglePainting(PaintKind.SUPPORTS) },
+        enabled = state.canPaintFacets,
+        selected = state.painting?.kind == PaintKind.SUPPORTS,
+    )
+    // GLGizmoSeam: the seam is enforced or blocked where it is painted.
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_toolbar_seam,
+        contentDescription = stringResource(R.string.gizmo_seam_painting),
+        onClick = { onTogglePainting(PaintKind.SEAM) },
+        enabled = state.canPaintFacets,
+        selected = state.painting?.kind == PaintKind.SEAM,
+    )
+    // GLGizmoFuzzySkin: the walls get fuzzy skin where it is painted.
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_toolbar_fuzzy_skin_paint,
+        contentDescription = stringResource(R.string.gizmo_fuzzy_skin_painting),
+        onClick = { onTogglePainting(PaintKind.FUZZY_SKIN) },
+        enabled = state.canPaintFacets,
+        selected = state.painting?.kind == PaintKind.FUZZY_SKIN,
+    )
+    // GLGizmoMmuSegmentation: the object is painted with the filaments of the plate;
+    // on_is_selectable(): the toolbar has it with more than one filament.
+    if (state.filamentColors.size > 1) {
+        OrcaCanvasTool(
+            icon = DesignR.drawable.orca_mmu_segmentation,
+            contentDescription = stringResource(R.string.gizmo_color_painting),
+            onClick = { onTogglePainting(PaintKind.COLOR) },
+            enabled = state.canPaint,
+            selected = state.painting?.kind == PaintKind.COLOR,
+        )
+    }
+    // GLGizmoEmboss: the tool opens on the selected text, or adds a text.
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_toolbar_text,
+        contentDescription = stringResource(R.string.gizmo_emboss),
+        onClick = onToggleText,
+        enabled = state.canEditPlate,
+        selected = state.text != null,
+    )
+    // GLGizmoMeasure: the selected volumes are measured.
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_toolbar_measure,
+        contentDescription = stringResource(R.string.gizmo_measure),
+        onClick = onToggleMeasure,
+        enabled = state.canMeasure,
+        selected = state.measure != null && state.measure.assembly == null,
+    )
+    // GLGizmoAssembly: two selected volumes are assembled.
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_toolbar_assembly,
+        contentDescription = stringResource(R.string.gizmo_assembly),
+        onClick = onToggleAssembly,
+        enabled = state.canAssemble,
+        selected = state.measure?.assembly != null,
+    )
+    // GLGizmoBrimEars: ears of the brim placed under the selected copy.
+    OrcaCanvasTool(
+        icon = DesignR.drawable.orca_toolbar_brimears,
+        contentDescription = stringResource(R.string.gizmo_brim_ears),
+        onClick = onToggleBrimEars,
+        enabled = state.canEditBrimEars,
+        selected = state.brimEars != null,
+    )
 }
 
 /**
@@ -3577,7 +3732,7 @@ private fun PrepareCompactPreview() = OrcinusTheme {
     )
 }
 
-@Preview(name = "Wide", widthDp = 1000, heightDp = 640)
+@Preview(name = "Expanded", widthDp = 1000, heightDp = 640)
 @Composable
 private fun PrepareWidePreview() = OrcinusTheme {
     PrepareScreen(
@@ -3589,7 +3744,7 @@ private fun PrepareWidePreview() = OrcinusTheme {
             canEditPlate = true,
             canSlice = true,
         ),
-        OrcaWindowLayout.Wide, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, { _, _ -> }, { _, _ -> }, {}, PrepareObjectMenuActions.NONE, {}, {}, {}, { _, _ -> }, {}, {}, {},
+        OrcaWindowLayout.Expanded, {}, {}, {}, { _, _ -> }, {}, PaintingActions.NONE, { _, _, _ -> }, { _, _ -> }, { _, _ -> }, {}, PrepareObjectMenuActions.NONE, {}, {}, {}, { _, _ -> }, {}, {}, {},
         PreviewArrangeActions, PreviewRotationActions, PreviewScaleActions, {}, {}, {},
     )
 }

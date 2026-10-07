@@ -1,5 +1,7 @@
 package app.orcinus.shadow.feature.preview
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,14 +12,26 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.collapse
+import androidx.compose.ui.semantics.expand
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
@@ -94,9 +108,7 @@ internal fun ToolpathsSheet(
     /** The presets a G-code file the preview shows on its own names, which the "Settings" section lists; null for none. */
     gcodeSettings: GcodeSettingsIds? = null,
 ) {
-    // render_legend() takes the estimated time of the time mode, or the viewer's own.
-    val modeTime = statistics.timeIn(view.timeMode)
-    val totalTime = if (modeTime > 0f) modeTime else view.estimatedTime
+    val totalTime = legendTotalTime(view, statistics)
     val navigationBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Column(
         Modifier
@@ -106,53 +118,168 @@ internal fun ToolpathsSheet(
             .verticalScroll(rememberScrollState()),
     ) {
         OrcaSheetHandle(Modifier.align(Alignment.CenterHorizontally))
-        OrcaSummaryRow(
-            listOf(
-                OrcaSummaryItem(DesignR.drawable.orca_monitor_item_prediction, LegendFormat.shortTime(totalTime), stringResource(R.string.summary_time)),
-                OrcaSummaryItem(
-                    DesignR.drawable.orca_filament,
-                    LegendFormat.spacedMeters(statistics.totalUsedFilament / 1_000.0, imperial),
-                    LegendFormat.compactWeight(statistics.totalWeight, imperial),
-                ),
-                OrcaSummaryItem(DesignR.drawable.orca_param_layer_height, view.layerZs.size.toString(), stringResource(R.string.summary_layers)),
-            ),
-        )
+        LegendSummary(view, statistics, imperial, totalTime)
         // Collapsed, the sheet ends here, above the navigation bar.
         Spacer(Modifier.height(SUMMARY_BOTTOM + navigationBar))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OrcaChoiceChips(
-                items = LegendViewTypes.map { viewTypeName(it) },
-                selected = LegendViewTypes.indexOf(view.viewType).coerceAtLeast(0),
-                onSelect = { onViewTypeChange(LegendViewTypes[it]) },
-                modifier = Modifier.weight(1f),
-            )
-            // The legend's G-code button beside the view types, lit while the window shows.
-            OrcaIconButton(
-                icon = DesignR.drawable.orca_im_code,
-                contentDescription = stringResource(R.string.gcode_window),
-                onClick = { onGcodeWindowChange(!gcodeWindow) },
-                tint = if (gcodeWindow) OrcaTheme.colors.accent else OrcaTheme.colors.textSide,
-                modifier = Modifier.padding(end = 8.dp),
-            )
-        }
-        when (view.viewType) {
-            ToolpathsViewType.FeatureType -> FeatureTypes(view, statistics, totalTime, imperial, onRoleVisibleChange, onOptionVisibleChange)
-            ToolpathsViewType.Summary -> Summary(statistics, view.timeMode, imperial)
-            ToolpathsViewType.ColorPrint -> ColorPrint(view, statistics, imperial)
-            ToolpathsViewType.Tool -> Unit
-            else -> ColorRange(view, onOptionVisibleChange)
-        }
-        if (gcodeSettings != null && (view.viewType == ToolpathsViewType.FeatureType || view.viewType == ToolpathsViewType.Tool)) {
-            Settings(view, gcodeSettings)
-        }
-        CustomGcodes(view, layerGcodes)
-        Estimation(view, statistics, imperial, onTimeModeChange)
-        if (view.viewType == ToolpathsViewType.ColorPrint) {
-            Options(view, onOptionVisibleChange)
-        }
+        LegendContent(
+            view, statistics, imperial, totalTime, onViewTypeChange, onRoleVisibleChange, onOptionVisibleChange,
+            gcodeWindow, onGcodeWindowChange, layerGcodes, onTimeModeChange, gcodeSettings,
+        )
         Spacer(Modifier.height(16.dp + navigationBar))
     }
 }
+
+/**
+ * The legend of a wide canvas as a panel over it at the side, as OrcaSlicer
+ * floats its legend over the canvas (GCodeViewer::render_legend()) with the
+ * print's estimate in it: [actions] at the top, as the print and export
+ * buttons that stand at the top on desktop, the print's time, filament and
+ * layers under them, which fold the legend away or show it, and the legend's
+ * content below, which scrolls when it is taller than the canvas leaves.
+ */
+@Composable
+internal fun ToolpathsLegendPanel(
+    view: ToolpathsView,
+    statistics: ToolpathsStatistics,
+    imperial: Boolean,
+    onViewTypeChange: (ToolpathsViewType) -> Unit,
+    onRoleVisibleChange: (ToolpathsRole, Boolean) -> Unit,
+    onOptionVisibleChange: (ToolpathsOption, Boolean) -> Unit,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    gcodeWindow: Boolean = true,
+    onGcodeWindowChange: (Boolean) -> Unit = {},
+    layerGcodes: List<LayerGcode> = emptyList(),
+    onTimeModeChange: (ToolpathsTimeMode) -> Unit = {},
+    gcodeSettings: GcodeSettingsIds? = null,
+    actions: @Composable () -> Unit = {},
+) {
+    val totalTime = legendTotalTime(view, statistics)
+    val colors = OrcaTheme.colors
+    Column(
+        modifier
+            .widthIn(max = LegendPanelWidth)
+            .shadow(2.dp, LegendPanelShape)
+            .clip(LegendPanelShape)
+            .background(colors.window.copy(alpha = LEGEND_PANEL_ALPHA)),
+    ) {
+        actions()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button) { onExpandedChange(!expanded) }
+                .semantics(mergeDescendants = true) {
+                    if (expanded) collapse { onExpandedChange(false); true } else expand { onExpandedChange(true); true }
+                }
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LegendSummary(view, statistics, imperial, totalTime, Modifier.weight(1f))
+            Icon(
+                painter = painterResource(DesignR.drawable.orca_drop_down),
+                contentDescription = null,
+                tint = colors.textSide,
+                modifier = Modifier
+                    .padding(end = 12.dp)
+                    .size(OrcaTheme.dimensions.icon)
+                    .rotate(if (expanded) 180f else 0f),
+            )
+        }
+        if (expanded) {
+            Column(
+                Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                LegendContent(
+                    view, statistics, imperial, totalTime, onViewTypeChange, onRoleVisibleChange, onOptionVisibleChange,
+                    gcodeWindow, onGcodeWindowChange, layerGcodes, onTimeModeChange, gcodeSettings,
+                )
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+    }
+}
+
+/** render_legend() takes the estimated time of the time mode, or the viewer's own. */
+private fun legendTotalTime(view: ToolpathsView, statistics: ToolpathsStatistics): Float {
+    val modeTime = statistics.timeIn(view.timeMode)
+    return if (modeTime > 0f) modeTime else view.estimatedTime
+}
+
+/** The print's time, filament and layers, which the collapsed legend shows. */
+@Composable
+private fun LegendSummary(view: ToolpathsView, statistics: ToolpathsStatistics, imperial: Boolean, totalTime: Float, modifier: Modifier = Modifier) {
+    OrcaSummaryRow(
+        listOf(
+            OrcaSummaryItem(DesignR.drawable.orca_monitor_item_prediction, LegendFormat.shortTime(totalTime), stringResource(R.string.summary_time)),
+            OrcaSummaryItem(
+                DesignR.drawable.orca_filament,
+                LegendFormat.spacedMeters(statistics.totalUsedFilament / 1_000.0, imperial),
+                LegendFormat.compactWeight(statistics.totalWeight, imperial),
+            ),
+            OrcaSummaryItem(DesignR.drawable.orca_param_layer_height, view.layerZs.size.toString(), stringResource(R.string.summary_layers)),
+        ),
+        modifier,
+    )
+}
+
+/** The view types, what the view colours, the estimation and the options: the legend under its summary. */
+@Composable
+private fun LegendContent(
+    view: ToolpathsView,
+    statistics: ToolpathsStatistics,
+    imperial: Boolean,
+    totalTime: Float,
+    onViewTypeChange: (ToolpathsViewType) -> Unit,
+    onRoleVisibleChange: (ToolpathsRole, Boolean) -> Unit,
+    onOptionVisibleChange: (ToolpathsOption, Boolean) -> Unit,
+    gcodeWindow: Boolean,
+    onGcodeWindowChange: (Boolean) -> Unit,
+    layerGcodes: List<LayerGcode>,
+    onTimeModeChange: (ToolpathsTimeMode) -> Unit,
+    gcodeSettings: GcodeSettingsIds?,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OrcaChoiceChips(
+            items = LegendViewTypes.map { viewTypeName(it) },
+            selected = LegendViewTypes.indexOf(view.viewType).coerceAtLeast(0),
+            onSelect = { onViewTypeChange(LegendViewTypes[it]) },
+            modifier = Modifier.weight(1f),
+        )
+        // The legend's G-code button beside the view types, lit while the window shows.
+        OrcaIconButton(
+            icon = DesignR.drawable.orca_im_code,
+            contentDescription = stringResource(R.string.gcode_window),
+            onClick = { onGcodeWindowChange(!gcodeWindow) },
+            tint = if (gcodeWindow) OrcaTheme.colors.accent else OrcaTheme.colors.textSide,
+            modifier = Modifier.padding(end = 8.dp),
+        )
+    }
+    when (view.viewType) {
+        ToolpathsViewType.FeatureType -> FeatureTypes(view, statistics, totalTime, imperial, onRoleVisibleChange, onOptionVisibleChange)
+        ToolpathsViewType.Summary -> Summary(statistics, view.timeMode, imperial)
+        ToolpathsViewType.ColorPrint -> ColorPrint(view, statistics, imperial)
+        ToolpathsViewType.Tool -> Unit
+        else -> ColorRange(view, onOptionVisibleChange)
+    }
+    if (gcodeSettings != null && (view.viewType == ToolpathsViewType.FeatureType || view.viewType == ToolpathsViewType.Tool)) {
+        Settings(view, gcodeSettings)
+    }
+    CustomGcodes(view, layerGcodes)
+    Estimation(view, statistics, imperial, onTimeModeChange)
+    if (view.viewType == ToolpathsViewType.ColorPrint) {
+        Options(view, onOptionVisibleChange)
+    }
+}
+
+/** The legend panel's width at most: a phone's sheet, for which the legend's rows are made. */
+private val LegendPanelWidth = 360.dp
+
+/** render_legend()'s window: rounded 8 and SetNextWindowBgAlpha(0.8f), a little less see-through for its buttons. */
+private val LegendPanelShape = RoundedCornerShape(8.dp)
+private const val LEGEND_PANEL_ALPHA = 0.92f
 
 /** The collapsed sheet's height, its handle and summary included; the page peeks at this. */
 internal val SheetPeekHeight = 76.dp

@@ -76,6 +76,8 @@ internal class CutActions(
     val line: (CutLineEvent) -> Unit = {},
     /** "Reset" of the planar cut: the plane reset and the connectors removed, in one step of Undo. */
     val reset: () -> Unit = {},
+    /** GLGizmoCut3D::shift_cut() of the Up and Down keys: the plane moves along its normal, in millimetres. */
+    val shift: (Double) -> Unit = {},
 ) {
     companion object {
         val NONE = CutActions({}, { _, _ -> }, {}, {}, {}, { _, _ -> }, { _, _ -> }, { _, _ -> }, {}, {}, {})

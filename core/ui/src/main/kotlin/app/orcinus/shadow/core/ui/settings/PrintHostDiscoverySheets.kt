@@ -8,10 +8,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,7 +26,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaDialogWidth
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.component.orcaClickable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.BonjourReply
@@ -166,7 +165,12 @@ internal fun FlashforgeDiscoverySheet(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The sheet of the lookups; a larger window shows it as a dialog. The desktop
+ * dialogs are tables of a column per detail (BonjourDialog's list 80 em wide,
+ * CrealityDiscoveryDialog's 50 em); a row here holds the details on a line
+ * under the name, which a dialog of a list's width has room for.
+ */
 @Composable
 private fun DiscoverySheet(
     title: String,
@@ -177,11 +181,7 @@ private fun DiscoverySheet(
     rows: LazyListScope.() -> Unit,
 ) {
     val colors = OrcaTheme.colors
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = OrcaDialogWidth.Medium) {
         Column(Modifier.navigationBarsPadding()) {
             Text(
                 text = title,

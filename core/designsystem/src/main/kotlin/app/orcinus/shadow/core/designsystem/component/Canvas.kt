@@ -7,9 +7,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -21,11 +23,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -41,7 +50,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -50,6 +63,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -87,10 +101,85 @@ fun OrcaCanvasToolbar(
 }
 
 /**
+ * A toolbar over a wide canvas, in a row as OrcaSlicer's main toolbar
+ * (GLCanvas3D::_render_main_toolbar()) or in a column as its gizmos stand
+ * without BBS_TOOLBAR_ON_TOP (GLGizmosManager::get_scaled_total_height()).
+ * OrcaSlicer scales its toolbar icons down until the toolbars fit the
+ * canvas's width, or its height for the gizmos' column
+ * (GLCanvas3D::_check_and_update_toolbar_icon_scale()); here the tools shrink
+ * to the room the toolbar has, down to a size a finger still hits, and below
+ * that it scrolls.
+ */
+@Composable
+fun OrcaFittedCanvasToolbar(
+    vertical: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    BoxWithConstraints(modifier) {
+        val room = if (vertical) maxHeight else maxWidth
+        val scroll = rememberScrollState()
+        val separator = OrcaTheme.dimensions.iconLarge / 2
+        val fullSize = OrcaTheme.dimensions.minimumTouchTarget
+        Layout(
+            // A column's tools show their tooltips beside them, clear of the next tool.
+            content = { CompositionLocalProvider(LocalCanvasToolbarVertical provides vertical, content = content) },
+            modifier = Modifier
+                .shadow(2.dp, OrcaTheme.shapes.canvasPanel)
+                .clip(OrcaTheme.shapes.canvasPanel)
+                .background(OrcaTheme.colors.canvasPanel)
+                .then(if (vertical) Modifier.verticalScroll(scroll) else Modifier.horizontalScroll(scroll))
+                .padding(if (vertical) PaddingValues(vertical = ToolbarPadding) else PaddingValues(horizontal = ToolbarPadding)),
+        ) { measurables, _ ->
+            val separators = measurables.count { it.layoutId == CanvasToolbarSeparatorId }
+            val tools = measurables.size - separators
+            val separatorLength = separator.roundToPx()
+            val full = fullSize.roundToPx()
+            val fitted = if (room == Dp.Infinity || tools == 0) {
+                full
+            } else {
+                (room.roundToPx() - (ToolbarPadding * 2).roundToPx() - separators * separatorLength) / tools
+            }
+            val size = fitted.coerceIn(MinimumFittedToolSize.roundToPx(), full)
+            val placeables = measurables.map { measurable ->
+                when {
+                    measurable.layoutId != CanvasToolbarSeparatorId -> measurable.measure(Constraints.fixed(size, size))
+                    vertical -> measurable.measure(Constraints.fixed(size, separatorLength))
+                    else -> measurable.measure(Constraints.fixed(separatorLength, size))
+                }
+            }
+            val length = placeables.sumOf { if (vertical) it.height else it.width }
+            layout(if (vertical) size else length, if (vertical) length else size) {
+                var at = 0
+                placeables.forEach { placeable ->
+                    if (vertical) placeable.place(0, at) else placeable.place(at, 0)
+                    at += if (vertical) placeable.height else placeable.width
+                }
+            }
+        }
+    }
+}
+
+/** Whether the tools stand in a column of [OrcaFittedCanvasToolbar], whose tooltips then show at their end. */
+private val LocalCanvasToolbarVertical = staticCompositionLocalOf { false }
+
+/** The least size of a tool of [OrcaFittedCanvasToolbar] before it scrolls. */
+private val MinimumFittedToolSize = 40.dp
+
+private val ToolbarPadding = 4.dp
+
+/** The layout id of [OrcaCanvasToolbarSeparator], which [OrcaFittedCanvasToolbar] sizes as a separator. */
+private const val CanvasToolbarSeparatorId = "separator"
+
+/**
  * A tool of [OrcaCanvasToolbar]. OrcaSlicer draws toolbar icons in one colour
  * and the active gizmo's icon, [selected], in the icon's own colours
- * (GLTexture::load_from_svg_files_as_sprites_array).
+ * (GLTexture::load_from_svg_files_as_sprites_array). The mouse over it shows
+ * its [tooltip], as GLToolbar and GLGizmosManager show an item's tooltip on
+ * hover, a disabled one's too; a finger held on it does as well. It shows
+ * under a tool of a row, and beside one of a column.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrcaCanvasTool(
     @DrawableRes icon: Int,
@@ -98,23 +187,38 @@ fun OrcaCanvasTool(
     onClick: () -> Unit,
     enabled: Boolean = true,
     selected: Boolean = false,
+    tooltip: String = contentDescription,
 ) {
     val colors = OrcaTheme.colors
     IconButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.semantics { this.selected = selected },
+        modifier = Modifier
+            .semantics { this.selected = selected }
+            .pointerHoverIcon(PointerIcon.Hand),
     ) {
-        Icon(
-            painter = painterResource(icon),
-            contentDescription = contentDescription,
-            tint = when {
-                !enabled -> colors.textDisabledOnBox
-                selected -> Color.Unspecified
-                else -> colors.onCanvasPanel
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(
+                if (LocalCanvasToolbarVertical.current) TooltipAnchorPosition.End else TooltipAnchorPosition.Below,
+            ),
+            tooltip = {
+                PlainTooltip(containerColor = colors.canvasPanel, contentColor = colors.onCanvasPanel, shadowElevation = 2.dp) {
+                    Text(tooltip, style = OrcaTheme.typography.body12)
+                }
             },
-            modifier = Modifier.size(OrcaTheme.dimensions.iconLarge),
-        )
+            state = rememberTooltipState(),
+        ) {
+            Icon(
+                painter = painterResource(icon),
+                contentDescription = contentDescription,
+                tint = when {
+                    !enabled -> colors.textDisabledOnBox
+                    selected -> Color.Unspecified
+                    else -> colors.onCanvasPanel
+                },
+                modifier = Modifier.size(OrcaTheme.dimensions.iconLarge),
+            )
+        }
     }
 }
 
@@ -125,7 +229,9 @@ fun OrcaCanvasToolbarSeparator() {
         painter = painterResource(R.drawable.orca_seperator),
         contentDescription = null,
         tint = OrcaTheme.colors.onCanvasPanel,
-        modifier = Modifier.size(width = OrcaTheme.dimensions.iconLarge / 2, height = OrcaTheme.dimensions.iconLarge * 2),
+        modifier = Modifier
+            .layoutId(CanvasToolbarSeparatorId)
+            .size(width = OrcaTheme.dimensions.iconLarge / 2, height = OrcaTheme.dimensions.iconLarge * 2),
     )
 }
 
@@ -138,9 +244,11 @@ fun OrcaGizmoPanel(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    // ImGuiWindowFlags_AlwaysAutoResize: as wide as the content.
+    // ImGuiWindowFlags_AlwaysAutoResize: as wide as the content, whose long lines
+    // wrap on a wide canvas at about the width they wrap at on a phone.
     Column(
         modifier = modifier
+            .widthIn(max = GizmoPanelMaxWidth)
             .width(IntrinsicSize.Max)
             .shadow(2.dp, OrcaTheme.shapes.canvasPanel)
             .clip(OrcaTheme.shapes.canvasPanel)
@@ -149,6 +257,9 @@ fun OrcaGizmoPanel(
         content = content,
     )
 }
+
+/** The widest a gizmo's window gets on a wide canvas. */
+private val GizmoPanelMaxWidth = 440.dp
 
 /**
  * Round canvas buttons of OrcaSlicer's bottom-left corner (menu, zoom):

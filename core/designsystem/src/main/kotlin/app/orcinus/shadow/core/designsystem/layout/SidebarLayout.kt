@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -23,13 +25,19 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.component.OrcaSidebarToggle
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
+import kotlin.math.roundToInt
 
 private val SidebarTogglePadding = 8.dp
 
@@ -43,17 +51,23 @@ val OrcaSidebarToggleSpace = SidebarTogglePadding * 2 + 48.dp
 /**
  * The main window with OrcaSlicer's sidebar.
  *
- * - Wide: the tab bar spans the top; below it the sidebar is docked beside the
- *   content and collapses, as on desktop.
+ * - Expanded: the tab bar spans the top; below it the sidebar is docked beside
+ *   the content and collapses, as on desktop, wider on a large window.
+ * - Medium: the tab bar spans the top; below it the sidebar opens over the
+ *   content, which keeps the whole width, with a scrim over the rest. The
+ *   collapse button stays above the scrim at the panel's edge and closes it,
+ *   as do a tap on the scrim, Back, and a swipe towards the edge.
  * - Compact: the sidebar is a modal navigation drawer over the whole screen,
  *   tab bar included. It opens with the collapse button and closes with a
- *   swipe, a tap on the scrim, or Back. It does not open with a swipe: the
- *   drawer takes a sideways drag anywhere on the content, so scrolling a page
- *   that leaves the drag to it (the printer's web page) opened it, and the
- *   left edge belongs to the system's Back gesture.
+ *   swipe, a tap on the scrim, or Back.
+ *
+ * Neither drawer opens with a swipe: the drawer takes a sideways drag anywhere
+ * on the content, so scrolling a page that leaves the drag to it (the
+ * printer's web page) opened it, and the left edge belongs to the system's
+ * Back gesture.
  *
  * OrcaSlicer's collapse button sits in the top-left corner of the content in
- * both layouts.
+ * every layout.
  */
 @Composable
 fun OrcaSidebarLayout(
@@ -66,21 +80,23 @@ fun OrcaSidebarLayout(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
+    val toggle: @Composable (Modifier) -> Unit = { toggleModifier ->
+        OrcaSidebarToggle(
+            contentDescription = toggleDescription,
+            onClick = { onSidebarVisibleChange(!sidebarVisible) },
+            modifier = toggleModifier
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))
+                .padding(SidebarTogglePadding),
+        )
+    }
     val contentWithToggle: @Composable () -> Unit = {
         Box(Modifier.fillMaxSize()) {
             content()
-            OrcaSidebarToggle(
-                contentDescription = toggleDescription,
-                onClick = { onSidebarVisibleChange(!sidebarVisible) },
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))
-                    .padding(SidebarTogglePadding),
-            )
+            toggle(Modifier.align(Alignment.TopStart))
         }
     }
     when (layout) {
-        OrcaWindowLayout.Wide -> Column(modifier.fillMaxSize()) {
+        OrcaWindowLayout.Expanded -> Column(modifier.fillMaxSize()) {
             topBar()
             Row(Modifier.weight(1f)) {
                 AnimatedVisibility(
@@ -90,7 +106,7 @@ fun OrcaSidebarLayout(
                 ) {
                     Box(
                         Modifier
-                            .width(OrcaTheme.dimensions.sidebarWidth)
+                            .width(currentOrcaSidebarWidth())
                             .fillMaxHeight()
                             .background(OrcaTheme.colors.window)
                             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Start)),
@@ -104,19 +120,46 @@ fun OrcaSidebarLayout(
             }
         }
 
-        OrcaWindowLayout.Compact -> {
-            val drawerState = rememberDrawerState(if (sidebarVisible) DrawerValue.Open else DrawerValue.Closed)
-            val visible by rememberUpdatedState(sidebarVisible)
-            val onVisibleChange by rememberUpdatedState(onSidebarVisibleChange)
-            // The caller's flag drives the drawer; swipes, the scrim, and Back report back.
-            LaunchedEffect(sidebarVisible) {
-                if (sidebarVisible) drawerState.open() else drawerState.close()
-            }
-            LaunchedEffect(drawerState) {
-                snapshotFlow { drawerState.currentValue == DrawerValue.Open }.collect { open ->
-                    if (open != visible) onVisibleChange(open)
+        OrcaWindowLayout.Medium -> Column(modifier.fillMaxSize()) {
+            topBar()
+            Box(Modifier.weight(1f)) {
+                val drawerState = rememberSidebarDrawerState(sidebarVisible, onSidebarVisibleChange)
+                var sheetWidth by remember { mutableIntStateOf(0) }
+                ModalNavigationDrawer(
+                    drawerContent = {
+                        ModalDrawerSheet(
+                            drawerState = drawerState,
+                            modifier = Modifier.onSizeChanged { sheetWidth = it.width },
+                            drawerContainerColor = OrcaTheme.colors.window,
+                            drawerContentColor = OrcaTheme.colors.text,
+                            // Under the tab bar, which keeps clear of the status bar.
+                            windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Start),
+                        ) { sidebar() }
+                    },
+                    drawerState = drawerState,
+                    gesturesEnabled = drawerState.isOpen,
+                ) {
+                    Box(Modifier.fillMaxSize()) { content() }
                 }
+                // Over the scrim, at the edge of the panel, which it follows as it opens and closes.
+                toggle(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .offset {
+                            val offset = drawerState.currentOffset
+                            val shown = when {
+                                !offset.isNaN() -> sheetWidth + offset.roundToInt()
+                                drawerState.isOpen -> sheetWidth
+                                else -> 0
+                            }
+                            IntOffset(shown.coerceIn(0, sheetWidth), 0)
+                        },
+                )
             }
+        }
+
+        OrcaWindowLayout.Compact -> {
+            val drawerState = rememberSidebarDrawerState(sidebarVisible, onSidebarVisibleChange)
             ModalNavigationDrawer(
                 drawerContent = {
                     ModalDrawerSheet(
@@ -136,4 +179,21 @@ fun OrcaSidebarLayout(
             }
         }
     }
+}
+
+/** The state of a sidebar drawer: the caller's flag drives it; swipes, the scrim, and Back report back. */
+@Composable
+private fun rememberSidebarDrawerState(visible: Boolean, onVisibleChange: (Boolean) -> Unit): DrawerState {
+    val drawerState = rememberDrawerState(if (visible) DrawerValue.Open else DrawerValue.Closed)
+    val currentVisible by rememberUpdatedState(visible)
+    val currentOnVisibleChange by rememberUpdatedState(onVisibleChange)
+    LaunchedEffect(visible) {
+        if (visible) drawerState.open() else drawerState.close()
+    }
+    LaunchedEffect(drawerState) {
+        snapshotFlow { drawerState.currentValue == DrawerValue.Open }.collect { open ->
+            if (open != currentVisible) currentOnVisibleChange(open)
+        }
+    }
+    return drawerState
 }

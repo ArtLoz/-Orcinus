@@ -13,8 +13,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,7 +31,8 @@ import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaFilamentSlot
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaDialogWidth
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.component.orcaClickable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -70,12 +69,12 @@ internal fun layerGcodeLabel(type: LayerGcodeType): String = orcaString(
 /**
  * IMSlider::render_add_menu() and render_edit_menu() for the layer at
  * [printZ], which the desktop slider opens with a right click on its handle;
- * a phone lists them in a sheet. A layer without a code offers a pause, G-code
+ * a phone lists them in a sheet, a larger window in a dialog the size of a
+ * menu (the slider does not say where its handle is). A layer without a code offers a pause, G-code
  * of the user's own, the printer's template, a jump to another layer and, with
  * several filaments, a filament change; a layer with one offers to change or
  * delete it. A print by object offers nothing but the jump.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LayerGcodeSheet(
     layerNumber: Int,
@@ -94,7 +93,7 @@ internal fun LayerGcodeSheet(
         onDismiss()
         action()
     }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.window, dragHandle = { OrcaSheetHandle() }) {
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = OrcaDialogWidth.Small) {
         Column(Modifier.navigationBarsPadding()) {
             Text(
                 text = String.format(Locale.ROOT, "%d (%.2f)", layerNumber, printZ),

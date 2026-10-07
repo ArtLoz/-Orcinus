@@ -34,6 +34,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -55,6 +60,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.component.OrcaUnderlineTabs
 import app.orcinus.shadow.core.designsystem.icon.orcaIcon
 import app.orcinus.shadow.core.designsystem.component.orcaClickable
+import app.orcinus.shadow.core.designsystem.layout.OrcaPageList
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.SettingChoice
 import app.orcinus.shadow.core.model.SettingDefinition
@@ -82,6 +88,33 @@ fun SettingsPageTabs(view: SettingsView, page: SettingsPage, onRequest: (Setting
         selectedIndex = pages.indexOf(page).coerceAtLeast(0),
         onSelect = { onRequest(SettingsRequest.SelectPage(pages[it].title)) },
         modified = pages.map(SettingsPage::modified),
+    )
+}
+
+/**
+ * The tab's pages down the side of a large window, as Tab::m_tabctrl lists
+ * them beside the page, with the icon each page is added with
+ * (Tab::add_options_page()) and the colour of a modified one
+ * (Tab::update_changed_tree_ui()). It stands for [settingsTabItems]' row of
+ * page tabs, which the list then leaves out.
+ */
+@Composable
+fun SettingsPageList(ui: SettingsTabUi, modifier: Modifier = Modifier) {
+    val view = ui.view ?: return
+    val page = ui.page ?: return
+    // As the row of tabs: the engine is asked for the page it shows when that
+    // page is not among the visible ones.
+    LaunchedEffect(view.settings.activePage, page.title) {
+        if (view.settings.activePage != page.title) ui.request(SettingsRequest.SelectPage(page.title))
+    }
+    val pages = view.visiblePages
+    OrcaPageList(
+        titles = pages.map { orcaText(it.label) },
+        selectedIndex = pages.indexOf(page).coerceAtLeast(0),
+        onSelect = { ui.request(SettingsRequest.SelectPage(pages[it].title)) },
+        modified = pages.map(SettingsPage::modified),
+        icons = pages.map { orcaIcon(it.icon) },
+        modifier = modifier,
     )
 }
 
@@ -446,6 +479,17 @@ private fun CommitTextField(
             onValueChange = { text = it },
             modifier = Modifier
                 .fillMaxWidth()
+                // A keyboard's Esc drops the edit, as a wxTextCtrl's does: the field shows the
+                // setting's value again and lets the focus go with nothing to commit. Enter is the
+                // IME action, and Tab moves on to the next field, both committing as the focus leaves.
+                .onPreviewKeyEvent { event ->
+                    if (event.key != Key.Escape || !focused) return@onPreviewKeyEvent false
+                    if (event.type == KeyEventType.KeyDown) {
+                        text = value
+                        focusManager.clearFocus()
+                    }
+                    true
+                }
                 .onFocusChanged {
                     if (focused && !it.isFocused && text != value) onCommit(text)
                     focused = it.isFocused

@@ -13,10 +13,8 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -36,11 +34,12 @@ import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
+import app.orcinus.shadow.core.designsystem.component.OrcaDialogWidth
 import app.orcinus.shadow.core.designsystem.component.OrcaFilamentSlot
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuCheckItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuSeparator
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.component.orcaClickable
@@ -538,9 +537,10 @@ fun shapeName(shape: String): Int = when (shape) {
 /**
  * The submenu of the desktop app's "Add part" items
  * (MenuFactory::append_submenu_add_generic): "Load..." (ObjectList::load_subobject),
- * then the shapes a part can have (create_mesh of GUI_ObjectList.cpp).
+ * then the shapes a part can have (create_mesh of GUI_ObjectList.cpp). It
+ * opens once the menu has closed, so a larger window shows it as a small
+ * dialog, the size of a menu, in place of the submenu beside the menu.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PartShapeSheet(
     type: VolumeType,
@@ -551,11 +551,7 @@ fun PartShapeSheet(
     onLoad: (() -> Unit)? = null,
 ) {
     val colors = OrcaTheme.colors
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = OrcaDialogWidth.Small) {
         Column(Modifier.navigationBarsPadding()) {
             Text(
                 text = stringResource(addPartName(type)),

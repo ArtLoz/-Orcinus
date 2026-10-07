@@ -15,11 +15,8 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -42,7 +39,8 @@ import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import app.orcinus.shadow.core.designsystem.component.OrcaChoiceChips
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaRadioButton
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaDialogWidth
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.component.OrcaSubmenu
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.icon.orcaIcon
@@ -105,6 +103,13 @@ internal fun CalibrationMenuItems(
 }
 
 /** The filament types of Temp_Calibration_Dlg with the temperatures each starts and ends at (on_filament_type_changed). */
+/**
+ * The calibration dialogs of calib_dlg.cpp size to their labels and fields
+ * (FromDIP(120) each) with Fit(); a larger window shows them at the width of a
+ * dialog of a form.
+ */
+private val CALIBRATION_DIALOG_WIDTH = OrcaDialogWidth.Medium
+
 private val FILAMENT_TYPES = listOf(
     Triple("PLA", 230, 190),
     Triple("ABS/ASA", 270, 230),
@@ -123,7 +128,6 @@ private val FILAMENT_TYPES = listOf(
  * dialog's message, and rounded down to 5 °C; OK wants the start at most
  * 500 °C, the end at least 155 °C, and the start 5 °C above the end.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun TemperatureCalibrationSheet(onDismiss: () -> Unit, onStart: (CalibrationParams) -> Unit) {
     val colors = OrcaTheme.colors
@@ -148,12 +152,7 @@ internal fun TemperatureCalibrationSheet(onDismiss: () -> Unit, onStart: (Calibr
         return ((value / 5) * 5).toString()
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = CALIBRATION_DIALOG_WIDTH, skipPartiallyExpanded = true) {
         Column(
             Modifier
                 .navigationBarsPadding()
@@ -251,8 +250,10 @@ internal enum class RangeTest(
     ),
 }
 
-/** The dialog of a [RangeTest], as a sheet: its start, end and step, and OK once they are valid. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The dialog of a [RangeTest], as a sheet on a phone and a dialog on a larger
+ * window: its start, end and step, and OK once they are valid.
+ */
 @Composable
 internal fun RangeCalibrationSheet(test: RangeTest, onDismiss: () -> Unit, onStart: (CalibrationParams) -> Unit) {
     val colors = OrcaTheme.colors
@@ -265,12 +266,7 @@ internal fun RangeCalibrationSheet(test: RangeTest, onDismiss: () -> Unit, onSta
     DisposableEffect(test) { onDispose { CalibrationDialogs.ranges[test] = RangeFigures(start, end, step) } }
     val unit = orcaString(test.unit)
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = CALIBRATION_DIALOG_WIDTH, skipPartiallyExpanded = true) {
         Column(
             Modifier
                 .navigationBarsPadding()
@@ -551,18 +547,12 @@ internal fun CorneringSheet(printer: CalibrationPrinter, onDismiss: () -> Unit, 
     }
 }
 
-/** A sheet of a test's dialog: its title, its content, and the guide and OK at the bottom. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** A sheet of a test's dialog, a dialog on a larger window: its title, its content, and the guide and OK at the bottom. */
 @Composable
 private fun TestSheet(title: String, guide: String, onDismiss: () -> Unit, onOk: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     val colors = OrcaTheme.colors
     val uriHandler = LocalUriHandler.current
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = CALIBRATION_DIALOG_WIDTH, skipPartiallyExpanded = true) {
         Column(
             Modifier
                 .navigationBarsPadding()
@@ -658,7 +648,6 @@ private val FLOW_PATTERNS = listOf(
  * pass, or a YOLO test) and the top surface pattern, each a list of choices
  * as the dialog's radio group and combo box offer them; OK starts the test.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun FlowRateSheet(
     choice: FlowRateChoice,
@@ -668,12 +657,7 @@ internal fun FlowRateSheet(
 ) {
     val colors = OrcaTheme.colors
     val uriHandler = LocalUriHandler.current
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = CALIBRATION_DIALOG_WIDTH, skipPartiallyExpanded = true) {
         Column(
             Modifier
                 .navigationBarsPadding()
@@ -776,7 +760,6 @@ private const val PA_PATTERN = 2
  * least 0.001 and an end past the start by a step, and accelerations above
  * the speeds.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PressureAdvanceSheet(
     choice: PressureAdvanceChoice,
@@ -823,12 +806,7 @@ internal fun PressureAdvanceSheet(
         printNumbers = next.method != PA_TOWER
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = CALIBRATION_DIALOG_WIDTH, skipPartiallyExpanded = true) {
         Column(
             Modifier
                 .navigationBarsPadding()

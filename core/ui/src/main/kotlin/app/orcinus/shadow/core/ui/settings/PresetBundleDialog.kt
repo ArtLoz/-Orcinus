@@ -38,12 +38,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonSize
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
+import app.orcinus.shadow.core.designsystem.component.OrcaFullScreenDialog
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.DialogIcon
@@ -84,10 +83,9 @@ fun PresetBundleDialog(
     var deleting by remember { mutableStateOf<PresetBundleInfo?>(null) }
     var failed by remember { mutableStateOf(false) }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
+    // PresetBundleDialog::PresetBundleDialog(): SetSize(FromDIP(wxSize(820, 660))), its two
+    // panes one over the other as there.
+    OrcaFullScreenDialog(onDismissRequest = onDismiss, width = 860.dp, height = 700.dp) {
         Column(
             Modifier
                 .fillMaxSize()

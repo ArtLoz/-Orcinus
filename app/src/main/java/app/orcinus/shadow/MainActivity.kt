@@ -1,6 +1,7 @@
 package app.orcinus.shadow
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.content.Context
@@ -11,6 +12,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.KeyEvent
+import android.view.KeyboardShortcutGroup
+import android.view.Menu
 import android.view.View
 import android.view.animation.PathInterpolator
 import androidx.activity.ComponentActivity
@@ -19,6 +23,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.core.animation.doOnEnd
@@ -34,10 +39,14 @@ import app.orcinus.shadow.core.ui.LocalToolpathsExport
 import app.orcinus.shadow.core.ui.R as CoreUiR
 import app.orcinus.shadow.di.AppContainer
 import app.orcinus.shadow.core.ui.orca.LocalOrcaCatalog
+import app.orcinus.shadow.core.ui.orca.OrcaCatalog
 import app.orcinus.shadow.core.ui.orca.orcaLanguageOf
 import app.orcinus.shadow.core.ui.orca.rememberOrcaCatalog
 import app.orcinus.shadow.core.ui.plate.ProvideOrcaNotificationLabels
+import app.orcinus.shadow.core.ui.shortcuts.KeyboardShortcuts
+import app.orcinus.shadow.core.ui.shortcuts.LocalKeyboardShortcuts
 import app.orcinus.shadow.domain.plate.EngineLanguage
+import app.orcinus.shadow.domain.shortcuts.ResolveShortcutUseCase
 import app.orcinus.shadow.ui.OrcinusApp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,6 +62,12 @@ class MainActivity : ComponentActivity() {
 
     /** The files handed over that the workspace has not taken yet. */
     private val openedDocuments = MutableStateFlow<List<ExternalDocumentReference>>(emptyList())
+
+    /** OrcaSlicer's shortcuts, which the window hands every key to first, as MainFrame's wxEVT_CHAR_HOOK takes it. */
+    private val shortcuts = KeyboardShortcuts(ResolveShortcutUseCase()::invoke)
+
+    /** The catalogue the content shows OrcaSlicer's texts in, for Android's list of the shortcuts. */
+    private var catalog = OrcaCatalog.EMPTY
 
     // Before Android 13 the app's language is the activity's own configuration.
     override fun attachBaseContext(newBase: Context) {
@@ -83,11 +98,14 @@ class MainActivity : ComponentActivity() {
         )
         setContent {
             OrcinusTheme {
+                val orcaCatalog = rememberOrcaCatalog()
+                SideEffect { catalog = orcaCatalog }
                 // OrcaSlicer's own texts, such as its settings, come from its catalogue.
                 CompositionLocalProvider(
-                    LocalOrcaCatalog provides rememberOrcaCatalog(),
+                    LocalOrcaCatalog provides orcaCatalog,
                     // The preview offers the File menu its toolpaths while it shows them.
                     LocalToolpathsExport provides remember { mutableStateOf(null) },
+                    LocalKeyboardShortcuts provides shortcuts,
                 ) {
                     // The notifications' close button, "More" and minimize button in the app's language.
                     ProvideOrcaNotificationLabels {
@@ -101,6 +119,28 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Every key goes to OrcaSlicer's shortcuts before the views, as the char
+     * hook of MainFrame takes it before the focused control: a key a page
+     * does goes no further, any other one on to the views. The window's own
+     * dialogs take their keys themselves. A text field being edited
+     * (onCheckIsTextEditor()) keeps the keys but MainFrame's.
+     */
+    // androidx.core's ComponentActivity restricts its own override of the platform's
+    // Activity.dispatchKeyEvent(), which this one overrides as the platform documents.
+    @SuppressLint("RestrictedApi")
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val press = event.toKeyPress()
+        if (press != null && shortcuts.dispatch(press, typing = currentFocus?.onCheckIsTextEditor() == true)) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    /** Android's list of the app's shortcuts (Meta+/): KBShortcutsDialog's pages. */
+    override fun onProvideKeyboardShortcuts(data: MutableList<KeyboardShortcutGroup>, menu: Menu?, deviceId: Int) {
+        super.onProvideKeyboardShortcuts(data, menu, deviceId)
+        data += systemShortcutGroups(catalog)
     }
 
     override fun onNewIntent(intent: Intent) {

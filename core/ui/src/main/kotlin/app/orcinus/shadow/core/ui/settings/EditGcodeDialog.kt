@@ -29,11 +29,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,13 +60,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaFullScreenDialog
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.icon.orcaIcon
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -125,10 +121,8 @@ fun EditGcodeDialog(
         }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
+    // EditGCodeDialog::EditGCodeDialog(): fit_in_display(*this, {100 * em, 70 * em}).
+    OrcaFullScreenDialog(onDismissRequest = onDismiss, width = 1000.dp, height = 700.dp) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -196,7 +190,11 @@ fun EditGcodeDialog(
     }
 }
 
-/** A full-screen dialog's caption with Cancel and OK (DialogButtons), as a bar over the screen. */
+/**
+ * A full-screen dialog's caption with Cancel and OK (DialogButtons): a bar over
+ * a phone's screen, and the title bar of the dialog's window on a larger one
+ * (OrcaFullScreenDialog), where no system bar is under it to pad.
+ */
 @Composable
 internal fun FullScreenDialogTopBar(
     title: String,
@@ -305,8 +303,10 @@ private class PlaceholderBrowserState(tree: GcodePlaceholderTree) {
     var selected by mutableStateOf<Int?>(null)
 }
 
-/** The list as a sheet over the editor of a phone, with the description and the add button under it. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The list as a sheet over the editor of a phone, with the description and the
+ * add button under it; a narrow window of a tablet opens it as a dialog.
+ */
 @Composable
 private fun PlaceholderSheet(
     tree: GcodePlaceholderTree,
@@ -316,12 +316,7 @@ private fun PlaceholderSheet(
     onDismiss: () -> Unit,
 ) {
     val colors = OrcaTheme.colors
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = onDismiss, skipPartiallyExpanded = true) {
         Column(Modifier.navigationBarsPadding()) {
             Text(
                 text = orcaString("Built-in placeholders (Double click item to add to G-code)") + ":",

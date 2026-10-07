@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -30,13 +29,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,9 +64,12 @@ import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuCheckItem
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaPageTopBar
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.component.orcaClickable
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
+import app.orcinus.shadow.core.designsystem.layout.OrcaPageWidth
+import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
+import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.BedShapeOutcome
 import app.orcinus.shadow.core.model.ColorRgba
@@ -177,9 +176,8 @@ fun ObjectTableRoute(viewModel: ObjectTableViewModel, onBack: () -> Unit, openOn
  * in a small dialog (a number, the name). The panel beside the desktop grid
  * (ObjectTableSettings), the settings of the selected cell's row on the page
  * of its setting, docks beside the grid where the window is wide and opens as
- * a sheet from the bar otherwise.
+ * a sheet (a dialog on a tablet in portrait) from the bar otherwise.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ObjectTableScreen(
     state: ObjectTableUiState,
@@ -225,12 +223,14 @@ internal fun ObjectTableScreen(
             actions.select(row)
         }
     }
-    BoxWithConstraints(
+    // The panel docks beside the grid on a large window, where the settings
+    // pages list their pages beside the page too; otherwise it opens over it.
+    val docked = currentOrcaWindowLayout() == OrcaWindowLayout.Expanded
+    Box(
         Modifier
             .fillMaxSize()
             .background(OrcaTheme.colors.window),
     ) {
-        val docked = maxWidth >= DOCKED_PANEL_MIN_WIDTH
         Column(Modifier.fillMaxSize()) {
             OrcaPageTopBar(
                 title = orcaString("Object/Part Settings"),
@@ -283,12 +283,8 @@ internal fun ObjectTableScreen(
         // A sheet whose row went away stays closed for the next row selected.
         LaunchedEffect(sheet != null) { if (sheet == null) panelOpen = false }
         sheet?.let { (row, tab) ->
-            ModalBottomSheet(
-                onDismissRequest = { panelOpen = false },
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                containerColor = OrcaTheme.colors.window,
-                dragHandle = { OrcaSheetHandle() },
-            ) {
+            // A dialog the width of a settings page on a tablet in portrait.
+            OrcaSheet(onDismissRequest = { panelOpen = false }, dialogWidth = OrcaPageWidth.Settings, skipPartiallyExpanded = true) {
                 RowSettingsPanel(
                     name = names[row.item],
                     column = selection?.column,
@@ -777,8 +773,7 @@ private val CELL_PADDING = 6.dp
 private val VOLUME_INDENT = 16.dp
 private val RESET_SIZE = 32.dp
 
-/** A window this wide shows the panel beside the grid, as the desktop dialog does. */
-private val DOCKED_PANEL_MIN_WIDTH = 720.dp
+/** The panel beside the grid, as the desktop dialog shows it. */
 private val DOCKED_PANEL_WIDTH = 340.dp
 
 /** The share of the window the panel's sheet takes. */

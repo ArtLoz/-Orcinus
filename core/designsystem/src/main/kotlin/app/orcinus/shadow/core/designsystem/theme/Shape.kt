@@ -26,7 +26,12 @@ data class OrcaDimensions(
     val spacingMedium: Dp = 12.dp,
     val spacingLarge: Dp = 16.dp,
     val tabBarHeight: Dp = 48.dp,
-    val sidebarWidth: Dp = 320.dp,
+    /**
+     * The docked sidebar, and on a large window (from 1200 dp) a little more than
+     * OrcaSlicer's least 39 em (Sidebar::msw_rescale()), for touch-sized controls.
+     */
+    val sidebarWidth: Dp = 360.dp,
+    val sidebarWidthLarge: Dp = 400.dp,
     val sidebarTitleHeight: Dp = 40.dp,
     val controlHeight: Dp = 32.dp,
     val parameterControlHeight: Dp = 28.dp,

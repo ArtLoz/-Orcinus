@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -38,6 +39,9 @@ import app.orcinus.shadow.core.designsystem.component.OrcaButtonSize
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaComboBox
 import app.orcinus.shadow.core.designsystem.component.OrcaLink
+import app.orcinus.shadow.core.designsystem.layout.OrcaPageWidth
+import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
+import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.AppConfigKeys
@@ -152,9 +156,10 @@ internal fun TroubleshootRoute(viewModel: TroubleshootViewModel, logo: @Composab
 }
 
 /**
- * TroubleshootDialog's two columns one after the other: the logo, the
- * version and the system information first, then Information, Profiles
- * and More.
+ * TroubleshootDialog's two columns: side by side on a large window, as the
+ * desktop dialog has them (left_sizer and right_sizer), and one after the
+ * other otherwise: the logo, the version and the system information first,
+ * then Information, Profiles and More.
  */
 @Composable
 internal fun TroubleshootScreen(
@@ -164,81 +169,86 @@ internal fun TroubleshootScreen(
     actions: TroubleshootActions,
     onBack: () -> Unit,
 ) {
+    val sideBySide = currentOrcaWindowLayout() == OrcaWindowLayout.Expanded
     AboutPage(title = stringResource(R.string.troubleshoot_title), onBack = onBack) {
         if (state.busy) {
             item { LinearProgressIndicator(color = OrcaTheme.colors.accent, modifier = Modifier.pageContent()) }
         }
-        item { SystemHeader(state.system, state.systemShown, logo, actions) }
+        if (sideBySide) {
+            item {
+                Row(Modifier.widthIn(max = LEFT_COLUMN_WIDTH + OrcaPageWidth.Text).fillMaxWidth()) {
+                    SystemHeader(state.system, state.systemShown, logo, actions, Modifier.width(LEFT_COLUMN_WIDTH))
+                    Column(Modifier.weight(1f).padding(top = 8.dp)) { TroubleshootSections(state, logLevel, actions) }
+                }
+            }
+        } else {
+            item { SystemHeader(state.system, state.systemShown, logo, actions, Modifier.pageContent()) }
+            item { Column(Modifier.pageContent()) { TroubleshootSections(state, logLevel, actions) } }
+        }
+    }
+}
 
-        item { SectionTitle(orcaString("Information")) }
-        item { BodyText(stringResource(R.string.troubleshoot_info_needed)) }
-        item { BodyText(stringResource(R.string.troubleshoot_info_pack)) }
-        item { BodyText(stringResource(R.string.troubleshoot_info_examples)) }
-        item {
-            Row(
-                modifier = Modifier
-                    .pageContent()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                state.reportIssueUrl?.let { url -> OrcaLink(stringResource(R.string.troubleshoot_report_issue), onClick = { actions.openUrl(url) }) }
-                Spacer(Modifier.weight(1f))
-                OrcaButton(stringResource(R.string.troubleshoot_pack) + DOTS, onClick = actions.pack, style = OrcaButtonStyle.Regular, enabled = !state.busy)
-            }
-        }
+/** The right column of the dialog: Information, Profiles and More. */
+@Composable
+private fun TroubleshootSections(state: TroubleshootUiState, logLevel: String?, actions: TroubleshootActions) {
+    SectionTitle(orcaString("Information"))
+    BodyText(stringResource(R.string.troubleshoot_info_needed))
+    BodyText(stringResource(R.string.troubleshoot_info_pack))
+    BodyText(stringResource(R.string.troubleshoot_info_examples))
+    Row(
+        modifier = Modifier
+            .pageContent()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        state.reportIssueUrl?.let { url -> OrcaLink(stringResource(R.string.troubleshoot_report_issue), onClick = { actions.openUrl(url) }) }
+        Spacer(Modifier.weight(1f))
+        OrcaButton(stringResource(R.string.troubleshoot_pack) + DOTS, onClick = actions.pack, style = OrcaButtonStyle.Regular, enabled = !state.busy)
+    }
 
-        item { SectionTitle(stringResource(R.string.troubleshoot_profiles)) }
-        item {
-            val cleaned = state.profiles?.systemCleaned == true
-            ActionRow(
-                title = stringResource(R.string.troubleshoot_clean_system),
-                details = stringResource(if (cleaned) R.string.troubleshoot_clean_pending else R.string.troubleshoot_clean_system_tip),
-            ) {
-                OrcaButton(
-                    stringResource(R.string.troubleshoot_clean),
-                    onClick = actions.cleanSystemProfiles,
-                    style = OrcaButtonStyle.Regular,
-                    enabled = state.profiles != null && !cleaned,
-                )
-            }
-        }
-        item {
-            ActionRow(title = stringResource(R.string.troubleshoot_loaded_profiles), details = stringResource(R.string.troubleshoot_loaded_profiles_tip)) {
-                OrcaButton(
-                    orcaString("Export") + DOTS,
-                    onClick = actions.exportProfilesOverview,
-                    style = OrcaButtonStyle.Regular,
-                    enabled = state.profiles != null && !state.busy,
-                )
-            }
-        }
-        item { ProfileCountsTable(state.profiles) }
+    SectionTitle(stringResource(R.string.troubleshoot_profiles))
+    val cleaned = state.profiles?.systemCleaned == true
+    ActionRow(
+        title = stringResource(R.string.troubleshoot_clean_system),
+        details = stringResource(if (cleaned) R.string.troubleshoot_clean_pending else R.string.troubleshoot_clean_system_tip),
+    ) {
+        OrcaButton(
+            stringResource(R.string.troubleshoot_clean),
+            onClick = actions.cleanSystemProfiles,
+            style = OrcaButtonStyle.Regular,
+            enabled = state.profiles != null && !cleaned,
+        )
+    }
+    ActionRow(title = stringResource(R.string.troubleshoot_loaded_profiles), details = stringResource(R.string.troubleshoot_loaded_profiles_tip)) {
+        OrcaButton(
+            orcaString("Export") + DOTS,
+            onClick = actions.exportProfilesOverview,
+            style = OrcaButtonStyle.Regular,
+            enabled = state.profiles != null && !state.busy,
+        )
+    }
+    ProfileCountsTable(state.profiles)
 
-        item { SectionTitle(orcaString("More")) }
-        item {
-            val labels = AppConfigKeys.LOG_SEVERITY_LEVELS.associateWith { orcaString(it) }
-            ActionRow(title = stringResource(R.string.troubleshoot_log_level)) {
-                OrcaComboBox(
-                    items = AppConfigKeys.LOG_SEVERITY_LEVELS,
-                    selected = logLevel.orEmpty(),
-                    label = { labels[it] ?: it },
-                    onSelect = actions.setLogLevel,
-                    enabled = logLevel != null,
-                    modifier = Modifier.width(COMBO_WIDTH),
-                )
-            }
-        }
+    SectionTitle(orcaString("More"))
+    val labels = AppConfigKeys.LOG_SEVERITY_LEVELS.associateWith { orcaString(it) }
+    ActionRow(title = stringResource(R.string.troubleshoot_log_level)) {
+        OrcaComboBox(
+            items = AppConfigKeys.LOG_SEVERITY_LEVELS,
+            selected = logLevel.orEmpty(),
+            label = { labels[it] ?: it },
+            onSelect = actions.setLogLevel,
+            enabled = logLevel != null,
+            modifier = Modifier.width(COMBO_WIDTH),
+        )
     }
 }
 
 /** The left column of the dialog: logo, version, the build's commit, and the system information with Hide/Show and Copy. */
 @Composable
-private fun SystemHeader(system: SystemInformation?, shown: Boolean, logo: @Composable () -> Unit, actions: TroubleshootActions) {
+private fun SystemHeader(system: SystemInformation?, shown: Boolean, logo: @Composable () -> Unit, actions: TroubleshootActions, modifier: Modifier) {
     val colors = OrcaTheme.colors
     Column(
-        modifier = Modifier
-            .pageContent()
-            .padding(horizontal = 16.dp, vertical = 24.dp),
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         logo()
@@ -392,6 +402,9 @@ private const val DOTS = "..."
 private const val ZIP_MIME_TYPE = "application/zip"
 private const val JSON_MIME_TYPE = "application/json"
 private val COMBO_WIDTH = 140.dp
+
+/** The left column (left_sizer) beside the right one, whose texts TroubleshootDialog wraps at 400 px. */
+private val LEFT_COLUMN_WIDTH = 320.dp
 private val COUNT_WIDTH = 72.dp
 private val SEPARATOR_WIDTH = 16.dp
 

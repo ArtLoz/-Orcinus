@@ -42,7 +42,15 @@ import app.orcinus.shadow.core.ui.R as UiR
 import app.orcinus.shadow.core.designsystem.component.OrcaComboField
 import app.orcinus.shadow.core.designsystem.component.OrcaPageTopBar
 import app.orcinus.shadow.core.designsystem.component.OrcaSidebarSection
+import app.orcinus.shadow.core.designsystem.component.orcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.rememberOrcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.layout.OrcaCentredContent
+import app.orcinus.shadow.core.designsystem.layout.OrcaListDetailPanes
+import app.orcinus.shadow.core.designsystem.layout.OrcaPageWidth
+import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
+import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
+import app.orcinus.shadow.core.ui.settings.SettingsPageList
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.PendingPresetChange
@@ -276,6 +284,10 @@ internal fun PresetSettingsScreen(
     searchCatalog: suspend () -> SearchCatalogOutcome = { SearchCatalogOutcome.Failure("") },
 ) {
     var choosingPreset by rememberSaveable { mutableStateOf(false) }
+    // TabPresetComboBox, which its list drops down from on a large window.
+    val presetAnchor = rememberOrcaPickerAnchor()
+    // The search button, which Search::SearchDialog pops up under.
+    val searchAnchor = rememberOrcaPickerAnchor()
     var searching by rememberSaveable { mutableStateOf(false) }
     // ParamsDialog closing: the Temperature Safety Check of a filament's
     // changes, whose "Back" keeps the page open.
@@ -306,6 +318,9 @@ internal fun PresetSettingsScreen(
     val enabled = state.enabled && presets != null
     val tab = rememberSettingsTab(state.tab, actions, enabled)
     val rows = rememberLazyListState()
+    // A large window lists the pages beside the page, as the desktop tab does;
+    // a smaller one keeps them as tabs over it.
+    val panes = currentOrcaWindowLayout() == OrcaWindowLayout.Expanded
     // The setting the search found on another tab, which opened this page.
     LaunchedEffect(openOption) {
         if (openOption == null) return@LaunchedEffect
@@ -314,10 +329,45 @@ internal fun PresetSettingsScreen(
     }
     // Tab::activate_option(): the tab scrolls to the setting the search found
     // once its page is shown, and marks it there.
-    LaunchedEffect(tab.highlighted, tab.page?.title) {
+    LaunchedEffect(tab.highlighted, tab.page?.title, panes) {
         val id = tab.highlighted ?: return@LaunchedEffect
-        val index = tab.indexOf(id, leading = 1) ?: return@LaunchedEffect
+        val index = tab.indexOf(id, leading = 1, pageTabs = !panes) ?: return@LaunchedEffect
         rows.animateScrollToItem(index)
+    }
+    // The preset of the tab, its buttons and mode switch, then the page.
+    val page: @Composable (Modifier) -> Unit = { modifier ->
+        // ParamsDialog keeps the label and the field of a line close together:
+        // the rows stay at most as wide as a settings page needs.
+        OrcaCentredContent(OrcaPageWidth.Settings, modifier) { padding ->
+            LazyColumn(state = rows, contentPadding = padding) {
+                item(key = "preset") {
+                    OrcaSidebarSection {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            OrcaComboField(
+                                text = tabItems?.selectedLabel().orEmpty(),
+                                enabled = enabled && !justEdit,
+                                onClick = { choosingPreset = true },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .orcaPickerAnchor(presetAnchor),
+                            )
+                            state.tab.settings?.let { SettingsPresetButtons(state.kind, it, enabled, actions, justEdit) }
+                        }
+                        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = orcaString("Settings"),
+                                color = OrcaTheme.colors.textLabel,
+                                style = OrcaTheme.typography.body14,
+                                modifier = Modifier.weight(1f),
+                            )
+                            state.tab.settings?.let { SettingsModeSwitch(state.kind, it, enabled, actions) }
+                        }
+                    }
+                }
+
+                settingsTabItems(tab, pageTabs = !panes)
+            }
+        }
     }
     Column(
         Modifier
@@ -337,36 +387,18 @@ internal fun PresetSettingsScreen(
                 onClick = { searching = true },
                 enabled = enabled,
                 tint = OrcaTheme.colors.onTabBar,
+                modifier = Modifier.orcaPickerAnchor(searchAnchor),
             )
         }
-        LazyColumn(
-            state = rows,
-            modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)),
-        ) {
-            item(key = "preset") {
-            OrcaSidebarSection {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OrcaComboField(
-                        text = tabItems?.selectedLabel().orEmpty(),
-                        enabled = enabled && !justEdit,
-                        onClick = { choosingPreset = true },
-                        modifier = Modifier.weight(1f),
-                    )
-                    state.tab.settings?.let { SettingsPresetButtons(state.kind, it, enabled, actions, justEdit) }
-                }
-                Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = orcaString("Settings"),
-                        color = OrcaTheme.colors.textLabel,
-                        style = OrcaTheme.typography.body14,
-                        modifier = Modifier.weight(1f),
-                    )
-                    state.tab.settings?.let { SettingsModeSwitch(state.kind, it, enabled, actions) }
-                }
+        val insets = Modifier
+            .weight(1f)
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+        if (panes) {
+            OrcaListDetailPanes(list = { SettingsPageList(tab) }, modifier = insets) {
+                page(Modifier.weight(1f))
             }
-            }
-
-            settingsTabItems(tab)
+        } else {
+            page(insets)
         }
         SettingsTabDialogs(tab)
     }
@@ -387,12 +419,14 @@ internal fun PresetSettingsScreen(
                 }
             },
             onDismiss = { searching = false },
+            anchor = searchAnchor,
         )
     }
 
     if (choosingPreset && presets != null) {
         PresetListSheet(
             title = orcaString(state.kind.tabTitle),
+            anchor = presetAnchor,
             items = tabItems.orEmpty(),
             onDismiss = { choosingPreset = false },
             onChoose = { item ->

@@ -37,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.orcinus.shadow.core.designsystem.component.OrcaLink
 import app.orcinus.shadow.core.designsystem.component.OrcaListRow
 import app.orcinus.shadow.core.designsystem.component.OrcaPageTopBar
+import app.orcinus.shadow.core.designsystem.layout.OrcaPageWidth
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.AppInfo
@@ -208,7 +209,7 @@ internal fun AboutPage(
     }
 }
 
-internal fun Modifier.pageContent() = widthIn(max = 720.dp).fillMaxWidth()
+internal fun Modifier.pageContent() = widthIn(max = OrcaPageWidth.Text).fillMaxWidth()
 
 @Composable
 internal fun SectionTitle(text: String) {

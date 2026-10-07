@@ -40,7 +40,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -119,6 +124,13 @@ fun OrcaLayerRangeSlider(
      */
     onLayerMenu: ((layer: Int, lowerHandle: Boolean) -> Unit)? = null,
     layerMenuDescription: String = "",
+    /**
+     * IMSlider::m_selection held by the caller, which the keys move too: the
+     * lower handle when true; null keeps it here. [onSelectionChange] tells
+     * which handle the finger or the mouse took last.
+     */
+    lowerSelected: Boolean? = null,
+    onSelectionChange: (lowerSelected: Boolean) -> Unit = {},
 ) {
     val colors = OrcaTheme.colors
     val last = (layerCount - 1).coerceAtLeast(0)
@@ -127,7 +139,18 @@ fun OrcaLayerRangeSlider(
     val currentHigher by rememberUpdatedState(higher)
     val currentOneLayer by rememberUpdatedState(oneLayer)
     val currentOnRangeChange by rememberUpdatedState(onRangeChange)
-    var active by remember { mutableStateOf(RangeThumb.Higher) }
+    val currentOnSelectionChange by rememberUpdatedState(onSelectionChange)
+    var ownActive by remember { mutableStateOf(RangeThumb.Higher) }
+    val active = when (lowerSelected) {
+        null -> ownActive
+        true -> RangeThumb.Lower
+        false -> RangeThumb.Higher
+    }
+    val currentActive by rememberUpdatedState(active)
+    fun select(thumb: RangeThumb) {
+        ownActive = thumb
+        currentOnSelectionChange(thumb == RangeThumb.Lower)
+    }
     var dragging by remember { mutableStateOf<RangeThumb?>(null) }
 
     fun change(thumb: RangeThumb, value: Int) {
@@ -146,10 +169,16 @@ fun OrcaLayerRangeSlider(
     val lowerLength by animateDpAsState(if (dragging == RangeThumb.Lower) HandleDraggedLength else HandleLength, label = "lower handle")
 
     Row(
-        modifier = modifier.semantics {
-            this.contentDescription = contentDescription
-            stateDescription = if (oneLayer) "${higher + 1}" else "${lower + 1}–${higher + 1}"
-        },
+        modifier = modifier
+            .semantics {
+                this.contentDescription = contentDescription
+                stateDescription = if (oneLayer) "${higher + 1}" else "${lower + 1}–${higher + 1}"
+            }
+            // IMSlider::on_mouse_wheel(): a notch moves the selected handle a layer, five with Ctrl or Shift.
+            .wheelSteps(layerCount) { steps ->
+                val thumb = if (currentOneLayer) RangeThumb.Higher else currentActive
+                change(thumb, (if (thumb == RangeThumb.Higher) currentHigher else currentLower) + steps)
+            },
     ) {
         // The pills float beside the track at the heights of their handles.
         BoxWithConstraints(Modifier.fillMaxHeight()) {
@@ -179,12 +208,13 @@ fun OrcaLayerRangeSlider(
                         .shadow(if (emphasized) 3.dp else 1.dp, CircleShape)
                         .clip(CircleShape)
                         .background(if (dragging == thumb) colors.accent else canvasPanelColor())
+                        .pointerHoverIcon(PointerIcon.Hand)
                         .pointerInput(thumb, layerCount) {
                             // A pill moves its handle by the distance the finger travels.
                             awaitEachGesture {
                                 val down = awaitFirstDown()
                                 down.consume()
-                                active = thumb
+                                select(thumb)
                                 dragging = thumb
                                 val start = if (thumb == RangeThumb.Higher) currentHigher else currentLower
                                 var travelled = 0f
@@ -228,6 +258,7 @@ fun OrcaLayerRangeSlider(
                     .padding(vertical = ControlGap)
                     .weight(1f)
                     .fillMaxWidth()
+                    .pointerHoverIcon(PointerIcon.Hand)
                     .pointerInput(layerCount) {
                         awaitEachGesture {
                             val down = awaitFirstDown()
@@ -241,7 +272,7 @@ fun OrcaLayerRangeSlider(
                                 abs(down.position.y - yAt(currentHigher)) <= abs(down.position.y - yAt(currentLower)) -> RangeThumb.Higher
                                 else -> RangeThumb.Lower
                             }
-                            active = thumb
+                            select(thumb)
                             dragging = thumb
                             change(thumb, valueAt(down.position.y))
                             do {
@@ -346,6 +377,32 @@ fun OrcaLayerRangeSlider(
     }
 }
 
+/**
+ * IMSlider::on_mouse_wheel(): a notch of the wheel over the slider is a step,
+ * up or right for a notch away from the user, five steps with Ctrl or Shift
+ * held ("Move slider 5x faster").
+ */
+private fun Modifier.wheelSteps(key: Any?, onSteps: (Int) -> Unit): Modifier = pointerInput(key) {
+    awaitPointerEventScope {
+        while (true) {
+            val event = awaitPointerEvent()
+            if (event.type != PointerEventType.Scroll) continue
+            val change = event.changes.firstOrNull() ?: continue
+            // A wheel turned away from the user scrolls up, which Compose gives as a negative y.
+            val wheel = -change.scrollDelta.y
+            // A Mac's trackpad sends a turn of 0 as it is clicked with two fingers.
+            if (wheel == 0f) continue
+            val keys = event.keyboardModifiers
+            val steps = (if (wheel > 0f) 1 else -1) * (if (keys.isCtrlPressed || keys.isShiftPressed) FAST_WHEEL_STEPS else 1)
+            onSteps(steps)
+            change.consume()
+        }
+    }
+}
+
+/** "Move slider 5x faster" */
+private const val FAST_WHEEL_STEPS = 5
+
 @Composable
 private fun ControlButton(
     icon: ImageVector,
@@ -425,6 +482,11 @@ fun OrcaMovePlayer(
             .semantics {
                 this.contentDescription = contentDescription
                 stateDescription = label
+            }
+            // IMSlider::on_mouse_wheel() of the horizontal slider.
+            .wheelSteps(moveCount) { steps ->
+                playing = false
+                currentOnPositionChange((currentPosition + steps).coerceIn(0, last))
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -437,6 +499,7 @@ fun OrcaMovePlayer(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
+                .pointerHoverIcon(PointerIcon.Hand)
                 .pointerInput(moveCount) {
                     awaitEachGesture {
                         val down = awaitFirstDown()

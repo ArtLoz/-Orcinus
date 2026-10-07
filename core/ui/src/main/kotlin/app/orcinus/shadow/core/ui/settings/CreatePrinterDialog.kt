@@ -45,13 +45,14 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import app.orcinus.shadow.core.designsystem.component.OrcaComboField
+import app.orcinus.shadow.core.designsystem.component.OrcaFullScreenDialog
+import app.orcinus.shadow.core.designsystem.component.OrcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.orcaPickerAnchor
 import app.orcinus.shadow.core.designsystem.component.OrcaRadioButton
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -246,10 +247,13 @@ fun CreatePrinterDialog(actions: CustomPrinterActions) {
         }
     }
 
-    Dialog(
-        onDismissRequest = actions.close,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
+    // The combo boxes the lists drop down from on a large window.
+    val anchors = remember { PrinterChoice.entries.associateWith { OrcaPickerAnchor() } }
+    val anchored = { which: PrinterChoice -> Modifier.orcaPickerAnchor(anchors.getValue(which)) }
+
+    // CreatePrinterPresetDialog takes the size of its pages: the template panel
+    // FromDIP(660) wide (create_printer_page2()) in a scrolled window up to 600 high.
+    OrcaFullScreenDialog(onDismissRequest = actions.close, width = 720.dp, height = 760.dp) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -282,6 +286,7 @@ fun CreatePrinterDialog(actions: CustomPrinterActions) {
                                 OrcaComboField(
                                     text = existingPrinter.ifEmpty { orcaString("Select Printer") },
                                     onClick = { choosing = PrinterChoice.EXISTING_PRINTER },
+                                    modifier = anchored(PrinterChoice.EXISTING_PRINTER),
                                 )
                             } else {
                                 if (customPrinter) {
@@ -302,11 +307,13 @@ fun CreatePrinterDialog(actions: CustomPrinterActions) {
                                     OrcaComboField(
                                         text = vendor.ifEmpty { orcaString("Select Vendor") },
                                         onClick = { choosing = PrinterChoice.VENDOR },
+                                        modifier = anchored(PrinterChoice.VENDOR),
                                     )
                                     Spacer(Modifier.height(6.dp))
                                     OrcaComboField(
                                         text = model.ifEmpty { orcaString("Select Model") },
                                         onClick = { choosing = PrinterChoice.MODEL },
+                                        modifier = anchored(PrinterChoice.MODEL),
                                     )
                                 }
                                 CheckLine(orcaString("Can't find my printer model"), customPrinter) { customPrinter = it }
@@ -327,6 +334,7 @@ fun CreatePrinterDialog(actions: CustomPrinterActions) {
                                 OrcaComboField(
                                     text = if (nozzle.isEmpty()) "" else "$nozzle $nozzleUnit",
                                     onClick = { choosing = PrinterChoice.NOZZLE },
+                                    modifier = anchored(PrinterChoice.NOZZLE),
                                 )
                             }
                             CheckLine(orcaString("Can't find my nozzle diameter"), customNozzle) { customNozzle = it }
@@ -365,11 +373,13 @@ fun CreatePrinterDialog(actions: CustomPrinterActions) {
                             OrcaComboField(
                                 text = presetVendor.ifEmpty { orcaString("Select Vendor") },
                                 onClick = { choosing = PrinterChoice.PRESET_VENDOR },
+                                modifier = anchored(PrinterChoice.PRESET_VENDOR),
                             )
                             Spacer(Modifier.height(6.dp))
                             OrcaComboField(
                                 text = printerPreset.ifEmpty { orcaString("Select Model") },
                                 onClick = { choosing = PrinterChoice.PRINTER_PRESET },
+                                modifier = anchored(PrinterChoice.PRINTER_PRESET),
                             )
                         }
                         PrinterField(orcaString("Presets")) {
@@ -399,47 +409,49 @@ fun CreatePrinterDialog(actions: CustomPrinterActions) {
                 }
             }
         }
-    }
-
-    choosing?.let { which ->
-        val items = when (which) {
-            PrinterChoice.VENDOR -> options?.vendors.orEmpty()
-            PrinterChoice.MODEL -> options?.models.orEmpty()
-            PrinterChoice.EXISTING_PRINTER -> options?.existingPrinters.orEmpty()
-            // The list reads "0.4 mm", as the desktop combo box does.
-            PrinterChoice.NOZZLE -> options?.nozzleDiameters.orEmpty().map { "$it $nozzleUnit" }
-            PrinterChoice.PRESET_VENDOR -> options?.presetVendors.orEmpty()
-            PrinterChoice.PRINTER_PRESET -> options?.printerPresets.orEmpty()
+        // The lists open in the dialog's window, so on a large window they drop
+        // down from their combo boxes inside it.
+        choosing?.let { which ->
+            val items = when (which) {
+                PrinterChoice.VENDOR -> options?.vendors.orEmpty()
+                PrinterChoice.MODEL -> options?.models.orEmpty()
+                PrinterChoice.EXISTING_PRINTER -> options?.existingPrinters.orEmpty()
+                // The list reads "0.4 mm", as the desktop combo box does.
+                PrinterChoice.NOZZLE -> options?.nozzleDiameters.orEmpty().map { "$it $nozzleUnit" }
+                PrinterChoice.PRESET_VENDOR -> options?.presetVendors.orEmpty()
+                PrinterChoice.PRINTER_PRESET -> options?.printerPresets.orEmpty()
+            }
+            ChoiceListSheet(
+                title = when (which) {
+                    PrinterChoice.MODEL, PrinterChoice.PRINTER_PRESET -> orcaString("Model")
+                    PrinterChoice.NOZZLE -> orcaString("Nozzle Diameter")
+                    PrinterChoice.EXISTING_PRINTER -> orcaString("Printer")
+                    else -> orcaString("Vendor")
+                },
+                items = items,
+                anchor = anchors[which],
+                onDismiss = { choosing = null },
+                onChoose = { picked ->
+                    choosing = null
+                    when (which) {
+                        PrinterChoice.VENDOR -> {
+                            vendor = picked
+                            model = ""
+                            // The vendor's choice clears the installed printer (m_select_printer->SetSelection(-1)).
+                            existingPrinter = ""
+                        }
+                        PrinterChoice.MODEL -> model = picked
+                        PrinterChoice.EXISTING_PRINTER -> existingPrinter = picked
+                        PrinterChoice.NOZZLE -> nozzle = picked.removeSuffix(" $nozzleUnit")
+                        PrinterChoice.PRESET_VENDOR -> {
+                            presetVendor = picked
+                            printerPreset = ""
+                        }
+                        PrinterChoice.PRINTER_PRESET -> printerPreset = picked
+                    }
+                },
+            )
         }
-        ChoiceListSheet(
-            title = when (which) {
-                PrinterChoice.MODEL, PrinterChoice.PRINTER_PRESET -> orcaString("Model")
-                PrinterChoice.NOZZLE -> orcaString("Nozzle Diameter")
-                PrinterChoice.EXISTING_PRINTER -> orcaString("Printer")
-                else -> orcaString("Vendor")
-            },
-            items = items,
-            onDismiss = { choosing = null },
-            onChoose = { picked ->
-                choosing = null
-                when (which) {
-                    PrinterChoice.VENDOR -> {
-                        vendor = picked
-                        model = ""
-                        // The vendor's choice clears the installed printer (m_select_printer->SetSelection(-1)).
-                        existingPrinter = ""
-                    }
-                    PrinterChoice.MODEL -> model = picked
-                    PrinterChoice.EXISTING_PRINTER -> existingPrinter = picked
-                    PrinterChoice.NOZZLE -> nozzle = picked.removeSuffix(" $nozzleUnit")
-                    PrinterChoice.PRESET_VENDOR -> {
-                        presetVendor = picked
-                        printerPreset = ""
-                    }
-                    PrinterChoice.PRINTER_PRESET -> printerPreset = picked
-                }
-            },
-        )
     }
 
     actions.message?.let { message ->

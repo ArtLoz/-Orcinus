@@ -11,9 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,7 +29,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonSize
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaSheet
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PrintHostJob
@@ -74,20 +72,16 @@ fun PrintHostQueueButton(jobs: List<PrintHostJob>, onClick: () -> Unit, modifier
 }
 
 /**
- * PrintHostQueueDialog as a sheet: every upload since the app started, its
+ * PrintHostQueueDialog as a sheet on a phone, and as the dialog, 60 em wide
+ * (wxSize(HEIGHT * em, WIDTH * em)), on a larger window: every upload since the app started, its
  * file, host and size, its status and progress; one that waits or goes out
  * can be cancelled, and one that failed shows its error message.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PrintHostQueueSheet(jobs: List<PrintHostJob>, onCancel: (Int) -> Unit, onDismiss: () -> Unit) {
     val colors = OrcaTheme.colors
     var shownError by remember { mutableStateOf<List<OrcaText>?>(null) }
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
-    ) {
+    OrcaSheet(onDismissRequest = onDismiss, dialogWidth = QUEUE_DIALOG_WIDTH) {
         Column(Modifier.navigationBarsPadding()) {
             Text(
                 text = orcaString("Print host upload queue"),
@@ -213,3 +207,6 @@ fun PrintHostJobsReport(jobs: List<PrintHostJob>, onAcknowledge: (Int) -> Unit, 
         PrintHostErrorDialog(ended.error, onDismiss = { onAcknowledge(ended.id) })
     }
 }
+
+/** PrintHostQueueDialog: HEIGHT (60) em wide. */
+private val QUEUE_DIALOG_WIDTH = 600.dp

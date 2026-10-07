@@ -26,9 +26,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,7 +58,10 @@ import app.orcinus.shadow.core.designsystem.component.OrcaContextMenu
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaMenuItem
 import app.orcinus.shadow.core.designsystem.component.OrcaRadioButton
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.OrcaPickerSheet
+import app.orcinus.shadow.core.designsystem.component.orcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.rememberOrcaPickerAnchor
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.component.textLocale
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -171,6 +172,9 @@ internal fun TextPanel(
     val editable = !mode.unknownFont
     var choosingFont by remember { mutableStateOf(false) }
     var choosingStyle by remember { mutableStateOf(false) }
+    // The combo boxes the lists of fonts and styles drop down from on a large window.
+    val fontAnchor = rememberOrcaPickerAnchor()
+    val styleAnchor = rememberOrcaPickerAnchor()
     var naming by remember { mutableStateOf<StyleNaming?>(null) }
     // draw_style_list()'s question before a modified style is left.
     var leavingFor by remember { mutableStateOf<Int?>(null) }
@@ -198,6 +202,7 @@ internal fun TextPanel(
                     text = style.name.ifEmpty { "—" } + if (mode.styleModified) orcaString("*") else "",
                     enabled = editable && mode.styles.isNotEmpty(),
                     onClick = { choosingStyle = true },
+                    modifier = Modifier.orcaPickerAnchor(styleAnchor),
                 )
             }
         }
@@ -207,7 +212,11 @@ internal fun TextPanel(
         val fontChanged = stored != null && fontChanged(style, stored, families)
         TextRow(orcaString("Font"), labelColor = if (fontChanged || stored == null) colors.labelModified else colors.onCanvasPanel) {
             Box(Modifier.weight(1f)) {
-                OrcaComboField(text = family?.name ?: style.faceName.ifEmpty { " --- " }, onClick = { choosingFont = true })
+                OrcaComboField(
+                    text = family?.name ?: style.faceName.ifEmpty { " --- " },
+                    onClick = { choosingFont = true },
+                    modifier = Modifier.orcaPickerAnchor(fontAnchor),
+                )
             }
             val italic = style.skew != null || face?.italic == true
             OrcaIconButton(
@@ -299,13 +308,13 @@ internal fun TextPanel(
         )
     }
     if (choosingFont) {
-        FontSheet(families, current = family, sample = mode.text, onDismiss = { choosingFont = false }, onChoose = { chosen ->
+        FontSheet(families, current = family, sample = mode.text, anchor = fontAnchor, onDismiss = { choosingFont = false }, onChoose = { chosen ->
             choosingFont = false
             actions.setFont(chosen)
         })
     }
     if (choosingStyle) {
-        StyleSheet(mode, sample = mode.text, onDismiss = { choosingStyle = false }, onSwap = actions.swapStyles, onChoose = { index ->
+        StyleSheet(mode, sample = mode.text, anchor = styleAnchor, onDismiss = { choosingStyle = false }, onSwap = actions.swapStyles, onChoose = { index ->
             choosingStyle = false
             // Check whether user wants lose actual style modification
             if (mode.styleModified) leavingFor = index else actions.selectStyle(index)
@@ -508,21 +517,20 @@ private fun StyleNameDialog(title: String, label: String, initial: String, uniqu
 /**
  * draw_style_list()'s combo box: the stored styles, the text written in each
  * one's font (init_style_images()), the tool's marked. After a long press a
- * style is dragged over its neighbours, as the desktop list reorders them.
+ * style is dragged over its neighbours, as the desktop list reorders them. A
+ * phone shows it as a sheet; a larger window drops it down from the combo box.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun StyleSheet(mode: TextMode, sample: String, onDismiss: () -> Unit, onSwap: (Int, Int) -> Unit, onChoose: (Int) -> Unit) {
+private fun StyleSheet(mode: TextMode, sample: String, anchor: OrcaPickerAnchor, onDismiss: () -> Unit, onSwap: (Int, Int) -> Unit, onChoose: (Int) -> Unit) {
     val colors = OrcaTheme.colors
     val rowHeight = with(LocalDensity.current) { StyleRowHeight.toPx() }
     val count by rememberUpdatedState(mode.styles.size)
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.window, dragHandle = { OrcaSheetHandle() }) {
+    OrcaPickerSheet(anchor = anchor, onDismissRequest = onDismiss, title = orcaString("Style")) {
         Column(
             Modifier
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState()),
         ) {
-            Text(orcaString("Style"), color = colors.text, style = OrcaTheme.typography.head16, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             mode.styles.forEachIndexed { index, item ->
                 key(item.name) {
                     val at by rememberUpdatedState(index)
@@ -994,15 +1002,21 @@ internal fun Warning(text: String) {
 /**
  * draw_font_list(): the phone's fonts by family, each name written in its
  * own font (draw_font_preview()), with a filter as the desktop combo box has.
+ * A phone shows it as a sheet; a larger window drops it down from the combo box.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FontSheet(families: List<TextFontFamily>, current: TextFontFamily?, sample: String, onDismiss: () -> Unit, onChoose: (TextFontFamily) -> Unit) {
+private fun FontSheet(
+    families: List<TextFontFamily>,
+    current: TextFontFamily?,
+    sample: String,
+    anchor: OrcaPickerAnchor,
+    onDismiss: () -> Unit,
+    onChoose: (TextFontFamily) -> Unit,
+) {
     val colors = OrcaTheme.colors
     var filter by rememberSaveable { mutableStateOf("") }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.window, dragHandle = { OrcaSheetHandle() }) {
+    OrcaPickerSheet(anchor = anchor, onDismissRequest = onDismiss, title = orcaString("Font")) {
         Column(Modifier.navigationBarsPadding()) {
-            Text(orcaString("Font"), color = colors.text, style = OrcaTheme.typography.head16, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             OrcaTextField(
                 value = filter,
                 onValueChange = { filter = it },

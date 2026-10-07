@@ -1379,6 +1379,16 @@ class PrepareViewModel(
         updateCut(snapshot = true) { it.copy(plane = moved) }
     }
 
+    /** GLGizmoCut3D::shift_cut(): Up and Down move the plane by [delta] millimetres along its normal, as one step of Undo. */
+    fun shiftCutPlane(delta: Double) {
+        val mode = view.value.cut ?: return
+        val plane = mode.plane ?: return
+        val center = CutPlanes.center(plane)
+        val normal = CutPlanes.normal(plane)
+        val moved = movedCut(mode, Vector3(center.x + normal.x * delta, center.y + normal.y * delta, center.z + normal.z * delta)) ?: return
+        updateCut(snapshot = true) { it.copy(plane = moved) }
+    }
+
     /** "Reset cutting plane": reset_cut_plane(). */
     fun resetCutPlane() {
         val center = view.value.cut?.boundsCenter ?: return

@@ -12,12 +12,15 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,6 +48,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,6 +77,10 @@ import app.orcinus.shadow.core.designsystem.component.OrcaChoiceChips
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
 import app.orcinus.shadow.core.designsystem.component.OrcaLink
 import app.orcinus.shadow.core.designsystem.component.OrcaPageTopBar
+import app.orcinus.shadow.core.designsystem.layout.OrcaPageWidth
+import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
+import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
+import app.orcinus.shadow.core.designsystem.layout.orcaContentWidth
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.SetupPrinterModel
 import app.orcinus.shadow.core.ui.orca.orcaString
@@ -357,7 +365,8 @@ private fun StealthPageContent(enabled: Boolean, onChange: (Boolean) -> Unit) {
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(16.dp)
+            .orcaContentWidth(OrcaPageWidth.Text),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
@@ -386,6 +395,12 @@ private fun StealthPageContent(enabled: Boolean, onChange: (Boolean) -> Unit) {
     }
 }
 
+/**
+ * The filament page (guide/22): the custom filaments, the filters and the
+ * filaments they list. A phone has them in one list; a larger window lays the
+ * filaments out in columns, and a large one puts the filters in a pane beside
+ * them, as the desktop page has its filter block over a wide table.
+ */
 @Composable
 private fun FilamentPageContent(
     page: FilamentPageState,
@@ -397,142 +412,204 @@ private fun FilamentPageContent(
         Progress(stringResource(R.string.loading))
         return
     }
-    val colors = OrcaTheme.colors
     val listed = remember(page) { page.listedLines }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
-        item(key = "custom") {
-            Column(Modifier.padding(top = 4.dp)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = stringResource(R.string.custom_filaments),
-                        color = colors.text,
-                        style = OrcaTheme.typography.head15,
-                        modifier = Modifier.weight(1f),
-                    )
-                    OrcaButton(
-                        text = stringResource(R.string.create_new_filament),
-                        onClick = viewModel::openCreateFilament,
-                        style = OrcaButtonStyle.Regular,
-                    )
-                }
-                for (filament in viewModel.custom) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, end = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = filament.name,
-                            color = colors.text,
-                            style = OrcaTheme.typography.body13,
-                            modifier = Modifier.weight(1f),
-                        )
-                        OrcaIconButton(
-                            icon = DesignR.drawable.orca_edit,
-                            contentDescription = orcaString("Edit Filament"),
-                            onClick = { viewModel.editFilament(filament.id) },
-                        )
-                    }
-                }
-            }
+    when (currentOrcaWindowLayout()) {
+        OrcaWindowLayout.Compact -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
+            item(key = "custom") { CustomFilaments(viewModel) }
+            item(key = "filters") { FilamentFilters(page, listed.size, viewModel, wrap = false) }
+            if (listed.isEmpty()) item(key = "empty") { NothingFound() }
+            items(listed, key = { it }) { index -> FilamentLine(page, index, viewModel) }
         }
-        item(key = "filters") {
-            Column(Modifier.padding(top = 4.dp)) {
-                FilterChips(
-                    title = stringResource(R.string.printer),
-                    items = page.models.indices.toList(),
-                    label = { page.models[it].id },
-                    checked = { it in page.machines },
-                    allChecked = page.machines.size == page.models.size,
-                    onToggle = viewModel::toggleMachine,
-                    onToggleAll = viewModel::toggleAllMachines,
-                )
-                FilterChips(
-                    title = stringResource(R.string.filament_type),
-                    items = page.types,
-                    label = { it },
-                    checked = { it in page.checkedTypes },
-                    allChecked = page.checkedTypes.size == page.types.size,
-                    onToggle = viewModel::toggleType,
-                    onToggleAll = viewModel::toggleAllTypes,
-                )
-                FilterChips(
-                    title = stringResource(R.string.vendor),
-                    items = page.vendors,
-                    label = { it },
-                    checked = { it in page.checkedVendors },
-                    allChecked = page.checkedVendors.size == page.vendors.size,
-                    onToggle = viewModel::toggleFilamentVendor,
-                    onToggleAll = viewModel::toggleAllFilamentVendors,
-                )
-                SearchField(
-                    value = page.search,
-                    onValueChange = viewModel::setSearch,
-                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp),
-                )
-                OrcaChoiceChips(
-                    items = listOf(stringResource(R.string.show_all), stringResource(R.string.show_checked), stringResource(R.string.show_unchecked)),
-                    selected = page.filter.ordinal,
-                    onSelect = { viewModel.setFilter(FilamentFilter.entries[it]) },
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-                // UpdateStats(): checked / all [shown].
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    val visible = listed.size
-                    Text(
-                        text = if (page.lines.size > visible) {
-                            stringResource(R.string.selected_count_filtered, page.checked.size, page.lines.size, visible)
-                        } else {
-                            stringResource(R.string.selected_count, page.checked.size, page.lines.size)
-                        },
-                        color = colors.textSide,
-                        style = OrcaTheme.typography.body12,
-                        modifier = Modifier.weight(1f),
-                    )
-                    OrcaLink(stringResource(R.string.all), onClick = { viewModel.checkListed(true) })
-                    Spacer(Modifier.width(16.dp))
-                    OrcaLink(stringResource(R.string.clear_all), onClick = { viewModel.checkListed(false) })
-                }
-                HorizontalDivider(color = colors.separator, thickness = 1.dp)
-            }
+        OrcaWindowLayout.Medium -> LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = FILAMENT_COLUMN_WIDTH),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 12.dp),
+        ) {
+            item(key = "custom", span = { GridItemSpan(maxLineSpan) }) { CustomFilaments(viewModel) }
+            item(key = "filters", span = { GridItemSpan(maxLineSpan) }) { FilamentFilters(page, listed.size, viewModel, wrap = false) }
+            if (listed.isEmpty()) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) { NothingFound() }
+            items(listed.size, key = { listed[it] }) { FilamentLine(page, listed[it], viewModel) }
         }
-        if (listed.isEmpty()) {
-            item(key = "empty") {
-                Text(stringResource(R.string.nothing_found), color = colors.textSide, style = OrcaTheme.typography.body14, modifier = Modifier.padding(16.dp))
-            }
-        }
-        items(listed, key = { it }) { index ->
-            val line = page.lines[index]
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .toggleable(value = index in page.checked, role = Role.Checkbox, onValueChange = { viewModel.toggleLine(index) })
-                    .heightIn(min = OrcaTheme.dimensions.minimumTouchTarget)
-                    .padding(start = 4.dp, end = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        OrcaWindowLayout.Expanded -> Row(Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .width(FILTER_PANE_WIDTH)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 12.dp),
             ) {
-                OrcaCheckBox(checked = index in page.checked, onCheckedChange = null)
-                Column(Modifier.weight(1f)) {
-                    Text(line.name, color = colors.text, style = OrcaTheme.typography.body14, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${line.vendor} · ${line.type}", color = colors.textSide, style = OrcaTheme.typography.body11, maxLines = 1)
-                }
+                CustomFilaments(viewModel)
+                FilamentFilters(page, listed.size, viewModel, wrap = true)
+            }
+            VerticalDivider(color = OrcaTheme.colors.separator)
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = FILAMENT_COLUMN_WIDTH),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                contentPadding = PaddingValues(top = 4.dp, bottom = 12.dp),
+            ) {
+                if (listed.isEmpty()) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) { NothingFound() }
+                items(listed.size, key = { listed[it] }) { FilamentLine(page, listed[it], viewModel) }
             }
         }
     }
 
     CustomFilamentDialogs(viewModel = viewModel, covered = covered, onEditFilamentPreset = onEditFilamentPreset)
 }
+
+/** "Custom Filaments" with its "Create New" and the filaments the user made, each with its edit button. */
+@Composable
+private fun CustomFilaments(viewModel: SetupWizardViewModel) {
+    val colors = OrcaTheme.colors
+    Column(Modifier.padding(top = 4.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.custom_filaments),
+                color = colors.text,
+                style = OrcaTheme.typography.head15,
+                modifier = Modifier.weight(1f),
+            )
+            OrcaButton(
+                text = stringResource(R.string.create_new_filament),
+                onClick = viewModel::openCreateFilament,
+                style = OrcaButtonStyle.Regular,
+            )
+        }
+        for (filament in viewModel.custom) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = filament.name,
+                    color = colors.text,
+                    style = OrcaTheme.typography.body13,
+                    modifier = Modifier.weight(1f),
+                )
+                OrcaIconButton(
+                    icon = DesignR.drawable.orca_edit,
+                    contentDescription = orcaString("Edit Filament"),
+                    onClick = { viewModel.editFilament(filament.id) },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The filters of the page (printer, type, vendor), the search, which lines
+ * show, and UpdateStats()'s count with "All" and "Clear all". [wrap] lays the
+ * chips out in lines, as the pane beside the filaments has the height for them.
+ */
+@Composable
+private fun FilamentFilters(page: FilamentPageState, visible: Int, viewModel: SetupWizardViewModel, wrap: Boolean) {
+    val colors = OrcaTheme.colors
+    Column(Modifier.padding(top = 4.dp)) {
+        FilterChips(
+            title = stringResource(R.string.printer),
+            items = page.models.indices.toList(),
+            label = { page.models[it].id },
+            checked = { it in page.machines },
+            allChecked = page.machines.size == page.models.size,
+            onToggle = viewModel::toggleMachine,
+            onToggleAll = viewModel::toggleAllMachines,
+            wrap = wrap,
+        )
+        FilterChips(
+            title = stringResource(R.string.filament_type),
+            items = page.types,
+            label = { it },
+            checked = { it in page.checkedTypes },
+            allChecked = page.checkedTypes.size == page.types.size,
+            onToggle = viewModel::toggleType,
+            onToggleAll = viewModel::toggleAllTypes,
+            wrap = wrap,
+        )
+        FilterChips(
+            title = stringResource(R.string.vendor),
+            items = page.vendors,
+            label = { it },
+            checked = { it in page.checkedVendors },
+            allChecked = page.checkedVendors.size == page.vendors.size,
+            onToggle = viewModel::toggleFilamentVendor,
+            onToggleAll = viewModel::toggleAllFilamentVendors,
+            wrap = wrap,
+        )
+        SearchField(
+            value = page.search,
+            onValueChange = viewModel::setSearch,
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp),
+        )
+        OrcaChoiceChips(
+            items = listOf(stringResource(R.string.show_all), stringResource(R.string.show_checked), stringResource(R.string.show_unchecked)),
+            selected = page.filter.ordinal,
+            onSelect = { viewModel.setFilter(FilamentFilter.entries[it]) },
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        // UpdateStats(): checked / all [shown].
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (page.lines.size > visible) {
+                    stringResource(R.string.selected_count_filtered, page.checked.size, page.lines.size, visible)
+                } else {
+                    stringResource(R.string.selected_count, page.checked.size, page.lines.size)
+                },
+                color = colors.textSide,
+                style = OrcaTheme.typography.body12,
+                modifier = Modifier.weight(1f),
+            )
+            OrcaLink(stringResource(R.string.all), onClick = { viewModel.checkListed(true) })
+            Spacer(Modifier.width(16.dp))
+            OrcaLink(stringResource(R.string.clear_all), onClick = { viewModel.checkListed(false) })
+        }
+        if (!wrap) HorizontalDivider(color = colors.separator, thickness = 1.dp)
+    }
+}
+
+/** A filament of the list: its check box, name, vendor and type. */
+@Composable
+private fun FilamentLine(page: FilamentPageState, index: Int, viewModel: SetupWizardViewModel) {
+    val colors = OrcaTheme.colors
+    val line = page.lines[index]
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(value = index in page.checked, role = Role.Checkbox, onValueChange = { viewModel.toggleLine(index) })
+            .heightIn(min = OrcaTheme.dimensions.minimumTouchTarget)
+            .padding(start = 4.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OrcaCheckBox(checked = index in page.checked, onCheckedChange = null)
+        Column(Modifier.weight(1f)) {
+            Text(line.name, color = colors.text, style = OrcaTheme.typography.body14, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${line.vendor} · ${line.type}", color = colors.textSide, style = OrcaTheme.typography.body11, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun NothingFound() {
+    Text(stringResource(R.string.nothing_found), color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body14, modifier = Modifier.padding(16.dp))
+}
+
+/** The least width of a column of filaments, which a name and its vendor fit. */
+private val FILAMENT_COLUMN_WIDTH = 280.dp
+
+/** The pane of the filters beside the filaments. */
+private val FILTER_PANE_WIDTH = 360.dp
 
 /** The dialogs the "Custom Filaments" of the filament page open. */
 @Composable
@@ -592,7 +669,8 @@ private fun CustomFilamentDialogs(
     }
 }
 
-/** A filter of the filament page: "All" and a chip per value. */
+/** A filter of the filament page: "All" and a chip per value, in one scrolling line or, with [wrap], in lines. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun <T> FilterChips(
     title: String,
@@ -602,18 +680,30 @@ private fun <T> FilterChips(
     allChecked: Boolean,
     onToggle: (T) -> Unit,
     onToggleAll: () -> Unit,
+    wrap: Boolean = false,
 ) {
     val colors = OrcaTheme.colors
     Text(title, color = colors.textSide, style = OrcaTheme.typography.body12, modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp))
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+    val chips: @Composable () -> Unit = {
         ToggleChip(stringResource(R.string.all), allChecked, onClick = onToggleAll)
         items.forEach { item -> ToggleChip(label(item), checked(item), onClick = { onToggle(item) }) }
+    }
+    if (wrap) {
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) { chips() }
+    } else {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) { chips() }
     }
 }
 

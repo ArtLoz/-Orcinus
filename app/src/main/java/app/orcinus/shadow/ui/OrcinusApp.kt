@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -65,6 +66,7 @@ import app.orcinus.shadow.core.model.ReloadPrompt
 import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SettingsItem
+import app.orcinus.shadow.core.model.ShortcutPage
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.StepMeshChoice
 import app.orcinus.shadow.core.model.notificationLevel
@@ -82,6 +84,7 @@ import app.orcinus.shadow.core.ui.plate.SliceButton
 import app.orcinus.shadow.core.ui.plate.StepMeshDialog
 import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
 import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
+import app.orcinus.shadow.core.ui.shortcuts.LocalKeyboardShortcuts
 import app.orcinus.shadow.di.AppContainer
 import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
 import app.orcinus.shadow.domain.plate.AnswerPlateQuestionUseCase
@@ -125,6 +128,7 @@ import app.orcinus.shadow.feature.setup.navigation.SetupNavKey
 import app.orcinus.shadow.feature.setup.navigation.setupEntry
 import app.orcinus.shadow.feature.sidebar.PlateSidebar
 import app.orcinus.shadow.feature.sidebar.PresetWizardPage
+import app.orcinus.shadow.feature.sidebar.ProjectShortcuts
 import app.orcinus.shadow.feature.sidebar.R as SidebarR
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -265,6 +269,10 @@ fun OrcinusApp(
     }
     val backStack = rememberNavBackStack(WorkspaceNavKey)
     val plate by shell.plate.collectAsStateWithLifecycle()
+    // A page over the workspace keeps its keys, as the desktop app's dialogs do.
+    val shortcuts = LocalKeyboardShortcuts.current
+    val covered = backStack.lastOrNull() != WorkspaceNavKey
+    SideEffect { shortcuts?.covered = covered }
     // The Setup Wizard's "Create" (user_guide_create_printer): CreatePrinterPresetDialog
     // of the sidebar opens once the wizard has closed.
     var createPrinterPending by rememberSaveable { mutableStateOf(false) }
@@ -475,7 +483,15 @@ private fun Workspace(
         if (projectPrompt == ProjectPrompt.SaveAs) saveAsPicker.launch(shell.saveAsName(untitled))
     }
     val layout = currentOrcaWindowLayout()
-    var sidebarVisible by rememberSaveable(layout) { mutableStateOf(layout == OrcaWindowLayout.Wide) }
+    // Whether the docked sidebar shows and whether the one over the content is open, each kept
+    // across size changes and turns: a tablet turned to portrait does not open the panel over the
+    // canvas because the sidebar stood docked in landscape, and turned back finds it as it was.
+    var sidebarDocked by rememberSaveable { mutableStateOf(true) }
+    var sidebarOpened by rememberSaveable { mutableStateOf(false) }
+    val sidebarVisible = if (layout.docksSidebar) sidebarDocked else sidebarOpened
+    fun showSidebar(visible: Boolean) {
+        if (layout.docksSidebar) sidebarDocked = visible else sidebarOpened = visible
+    }
 
     // A slice that finishes shows its G-code; another plate becoming current,
     // with the G-code it was sliced into before, leaves the tab as it is.
@@ -578,7 +594,7 @@ private fun Workspace(
     var assemblyShown by rememberSaveable { mutableStateOf(false) }
     // CreatePrinterPresetDialog of the Setup Wizard's "Create" opens from the docked sidebar.
     LaunchedEffect(createPrinterPending) {
-        if (createPrinterPending && layout == OrcaWindowLayout.Wide) sidebarVisible = true
+        if (createPrinterPending && layout.docksSidebar) sidebarDocked = true
     }
     // PlaterDropTarget::OnDropFiles(): documents another app drags onto the window (split
     // screen, a desktop mode) load as load_files() loads them, on the Prepare tab
@@ -611,25 +627,46 @@ private fun Workspace(
         // MainFrame's Project tab (ProjectPanel), after the device.
         OrcaTab(orcaString("Project"), DesignR.drawable.orca_tab_auxiliary_active),
     )
+    // The tab bar's selection, which Ctrl+Tab and the canvases' Tab make too.
+    val selectTab = { index: Int ->
+        val destination = destinations[index]
+        if (destination == PrepareNavKey && plate.previewOnly != null && backStack.lastOrNull() != PrepareNavKey) {
+            previewOnlyHint = true
+        } else {
+            showTab(destination)
+        }
+    }
+    val tabIndex = destinations.indexOf(backStack.lastOrNull()).coerceAtLeast(0)
+    WorkspaceShortcuts(
+        page = when (shownTab) {
+            PrepareNavKey -> ShortcutPage.PREPARE
+            PreviewNavKey -> ShortcutPage.PREVIEW
+            else -> ShortcutPage.OTHER
+        },
+        onSwitchTab = { forward -> selectTab(Math.floorMod(tabIndex + if (forward) 1 else -1, destinations.size)) },
+        onSwitchPrepareAndPreview = { selectTab(destinations.indexOf(if (shownTab == PreviewNavKey) PrepareNavKey else PreviewNavKey)) },
+        onToggleSidebar = { showSidebar(!sidebarVisible) },
+        sliceEnabled = plate.sliceEnabled,
+        onSlicePlate = {
+            sliceRequested()
+            container.slicePlate()
+        },
+        onOpenPreferences = onOpenPreferences,
+    )
+    // The File menu's shortcuts, which work with the sidebar collapsed too.
+    ProjectShortcuts(createViewModel = container::sidebarViewModel)
 
     OrcaSidebarLayout(
         modifier = Modifier.dragAndDropTarget(shouldStartDragAndDrop = { true }, target = fileDrop),
         layout = layout,
         sidebarVisible = sidebarVisible,
-        onSidebarVisibleChange = { sidebarVisible = it },
+        onSidebarVisibleChange = { showSidebar(it) },
         toggleDescription = stringResource(if (sidebarVisible) SidebarR.string.collapse_sidebar else SidebarR.string.expand_sidebar),
         topBar = {
             OrcaTabBar(
                 tabs = tabs,
-                selectedIndex = destinations.indexOf(backStack.lastOrNull()).coerceAtLeast(0),
-                onSelect = { index ->
-                    val destination = destinations[index]
-                    if (destination == PrepareNavKey && plate.previewOnly != null && backStack.lastOrNull() != PrepareNavKey) {
-                        previewOnlyHint = true
-                    } else {
-                        showTab(destination)
-                    }
-                },
+                selectedIndex = tabIndex,
+                onSelect = selectTab,
                 fillWidth = layout == OrcaWindowLayout.Compact,
             ) {
                 SliceButton(
@@ -647,45 +684,45 @@ private fun Workspace(
             PlateSidebar(
                 createViewModel = container::sidebarViewModel,
                 onOpenWizard = { page ->
-                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    sidebarOpened = false
                     onOpenWizard(page)
                 },
                 onOpenSettings = { kind ->
-                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    sidebarOpened = false
                     onOpenSettings(kind)
                 },
                 onOpenSetting = { option ->
-                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    sidebarOpened = false
                     onOpenSetting(option)
                 },
                 onOpenAbout = {
-                    // The drawer of a phone is closed when the page comes back.
-                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    // The sidebar over the content, a phone's drawer or a tablet's panel, is closed when the page comes back.
+                    sidebarOpened = false
                     onOpenAbout()
                 },
                 onOpenPreferences = {
-                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    sidebarOpened = false
                     onOpenPreferences()
                 },
                 onOpenTroubleshoot = {
-                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    sidebarOpened = false
                     onOpenTroubleshoot()
                 },
                 onOpenObjectTable = { item ->
-                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    sidebarOpened = false
                     onOpenObjectTable(item)
                 },
                 onShowCanvas = {
-                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    sidebarOpened = false
                 },
                 onShowPrepare = {
-                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    sidebarOpened = false
                     showTab(PrepareNavKey)
                 },
                 prepareShown = shownTab == PrepareNavKey,
                 view3DShown = shownTab == PrepareNavKey && !assemblyShown,
                 onOpenNetworkTest = {
-                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    sidebarOpened = false
                     onOpenNetworkTest()
                 },
                 createPrinterPending = createPrinterPending,
@@ -709,7 +746,7 @@ private fun Workspace(
                     createViewModel = container::prepareViewModel,
                     shown = prepareShown,
                     onSliceRequested = sliceRequested,
-                    onOpenSidebar = { sidebarVisible = true },
+                    onOpenSidebar = { showSidebar(true) },
                     onOpenSetting = onOpenSetting,
                     onOpenObjectTable = onOpenObjectTable,
                     onAssemblyViewChange = { assemblyShown = it },

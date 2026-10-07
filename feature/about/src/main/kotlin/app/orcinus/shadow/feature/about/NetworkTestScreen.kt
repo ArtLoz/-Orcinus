@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -16,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -24,6 +26,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
+import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
+import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.ui.orca.orcaString
 import app.orcinus.shadow.domain.about.NetworkTest
@@ -201,20 +205,33 @@ private fun InfoLine(title: String, value: String) {
 
 /**
  * A test's line of the grid: its title over the latest status, and its button
- * under them, as the button's text is too long to share a phone's width.
+ * under them, as the button's text is too long to share a phone's width; a
+ * larger window puts the button before them, as the dialog's grid does.
  */
 @Composable
 private fun TestLine(button: String, title: String, result: String, onTest: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .pageContent()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-    ) {
+    val texts: @Composable () -> Unit = {
         Text(title, color = OrcaTheme.colors.text, style = OrcaTheme.typography.body15)
         Text(result, color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body13, modifier = Modifier.padding(top = 2.dp))
-        OrcaButton(button, onClick = onTest, style = OrcaButtonStyle.Regular, modifier = Modifier.padding(top = 8.dp))
+    }
+    val modifier = Modifier
+        .pageContent()
+        .padding(horizontal = 16.dp, vertical = 6.dp)
+    if (currentOrcaWindowLayout() == OrcaWindowLayout.Compact) {
+        Column(modifier) {
+            texts()
+            OrcaButton(button, onClick = onTest, style = OrcaButtonStyle.Regular, modifier = Modifier.padding(top = 8.dp))
+        }
+    } else {
+        Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+            OrcaButton(button, onClick = onTest, style = OrcaButtonStyle.Regular, modifier = Modifier.width(TEST_BUTTON_WIDTH))
+            Column(Modifier.padding(start = 16.dp)) { texts() }
+        }
     }
 }
+
+/** The tests' buttons are one width, as the column of the dialog's grid. */
+private val TEST_BUTTON_WIDTH = 240.dp
 
 private val LOG_MIN_HEIGHT = 160.dp
 private val LOG_MAX_HEIGHT = 360.dp

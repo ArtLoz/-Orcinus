@@ -18,12 +18,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,7 +40,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaIconButton
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.OrcaPickerSheet
 import app.orcinus.shadow.core.designsystem.component.orcaClickable
 import app.orcinus.shadow.core.designsystem.component.orcaSelectable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -88,12 +86,13 @@ private sealed interface SheetRow {
 }
 
 /**
- * The drop-down list of an OrcaSlicer preset combo box as a bottom sheet: its
- * sections ("User presets", "System presets"), the submenus of their entries,
- * and the selected entry marked. A long list can be searched. [action] is the
- * list's last entry, such as "Select/Remove printers (system presets)".
+ * The drop-down list of an OrcaSlicer preset combo box: its sections ("User
+ * presets", "System presets"), the submenus of their entries, and the selected
+ * entry marked. A long list can be searched. [action] is the list's last
+ * entry, such as "Select/Remove printers (system presets)". A phone shows it as
+ * a bottom sheet; a larger window drops it down from the combo box of
+ * [anchor], as the desktop's PresetComboBox does.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PresetListSheet(
     title: String,
@@ -105,26 +104,20 @@ fun PresetListSheet(
     /** A second entry under it, as the printer list has two. */
     secondAction: String? = null,
     onSecondAction: () -> Unit = {},
+    /** The combo box the list belongs to. */
+    anchor: OrcaPickerAnchor? = null,
 ) {
     val colors = OrcaTheme.colors
     var search by rememberSaveable { mutableStateOf("") }
     val rows = remember(items, search) { sheetRows(items, search) }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = (rows.indexOfFirst { it is SheetRow.Entry && it.item.selected } - 1).coerceAtLeast(0))
-    ModalBottomSheet(
+    OrcaPickerSheet(
+        anchor = anchor,
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = items.size > SEARCH_THRESHOLD),
-        containerColor = colors.window,
-        dragHandle = { OrcaSheetHandle() },
+        title = title,
+        skipPartiallyExpanded = items.size > SEARCH_THRESHOLD,
     ) {
         Column(Modifier.navigationBarsPadding()) {
-            Text(
-                title,
-                color = colors.text,
-                style = OrcaTheme.typography.head16,
-                modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .semantics { heading() },
-            )
             if (items.size > SEARCH_THRESHOLD) {
                 SearchField(search, onValueChange = { search = it }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
             }

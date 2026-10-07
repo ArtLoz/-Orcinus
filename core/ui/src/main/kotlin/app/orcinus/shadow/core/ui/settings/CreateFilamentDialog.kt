@@ -30,10 +30,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import app.orcinus.shadow.core.designsystem.component.OrcaCheckBox
 import app.orcinus.shadow.core.designsystem.component.OrcaComboField
+import app.orcinus.shadow.core.designsystem.component.OrcaFullScreenDialog
+import app.orcinus.shadow.core.designsystem.component.OrcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.orcaPickerAnchor
 import app.orcinus.shadow.core.designsystem.component.OrcaRadioButton
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -86,11 +87,13 @@ fun CreateFilamentDialog(
         presets.filterIndexed { index, _ -> chosen.getOrElse(index) { false } }
     }
     val vendorName = if (customVendor) customVendorName else vendor
+    // The combo boxes the lists drop down from on a large window.
+    val anchors = remember { FilamentChoice.entries.associateWith { OrcaPickerAnchor() } }
+    val copyAnchors = remember(copyPrinters) { copyPrinters.associateWith { OrcaPickerAnchor() } }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
+    // CreateFilamentPresetDialog::CreateFilamentPresetDialog(): SetSize(FromDIP(600), FromDIP(480)),
+    // and its preset list grows to FromDIP(350) under it.
+    OrcaFullScreenDialog(onDismissRequest = onDismiss, width = 640.dp, height = 720.dp) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -134,6 +137,7 @@ fun CreateFilamentDialog(
                             OrcaComboField(
                                 text = vendor.ifEmpty { orcaString("Select Vendor") },
                                 onClick = { choosing = FilamentChoice.VENDOR },
+                                modifier = Modifier.orcaPickerAnchor(anchors.getValue(FilamentChoice.VENDOR)),
                             )
                         }
                     }
@@ -156,6 +160,7 @@ fun CreateFilamentDialog(
                         OrcaComboField(
                             text = type.ifEmpty { orcaString("Select Type") },
                             onClick = { choosing = FilamentChoice.TYPE },
+                            modifier = Modifier.orcaPickerAnchor(anchors.getValue(FilamentChoice.TYPE)),
                         )
                     }
                     FieldRow(orcaString("Serial")) {
@@ -176,6 +181,7 @@ fun CreateFilamentDialog(
                                 text = baseFilament.ifEmpty { orcaString("Select Filament Preset") },
                                 enabled = type.isNotEmpty(),
                                 onClick = { choosing = FilamentChoice.BASE_FILAMENT },
+                                modifier = Modifier.orcaPickerAnchor(anchors.getValue(FilamentChoice.BASE_FILAMENT)),
                             )
                         }
                     }
@@ -223,6 +229,7 @@ fun CreateFilamentDialog(
                                 OrcaComboField(
                                     text = copyChosen[printer] ?: orcaString("Select filament preset"),
                                     onClick = { choosingCopyFor = printer },
+                                    modifier = copyAnchors[printer]?.let { Modifier.orcaPickerAnchor(it) } ?: Modifier,
                                 )
                             }
                         }
@@ -248,46 +255,49 @@ fun CreateFilamentDialog(
                 }
             }
         }
-    }
-
-    choosingCopyFor?.let { printer ->
-        ChoiceListSheet(
-            title = printer,
-            items = copyPresets.filter { it.printer == printer }.map(FilamentPresetChoice::preset),
-            onDismiss = { choosingCopyFor = null },
-            onChoose = { picked ->
-                choosingCopyFor = null
-                copyChosen[printer] = picked
-                copyChecked[printer] = true
-            },
-        )
-    }
-    choosing?.let { which ->
-        val items = when (which) {
-            FilamentChoice.VENDOR -> options?.vendors.orEmpty()
-            FilamentChoice.TYPE -> options?.types.orEmpty()
-            FilamentChoice.BASE_FILAMENT -> options?.baseFilaments.orEmpty()
+        // The lists open in the dialog's window, so on a large window they drop
+        // down from their combo boxes inside it.
+        choosingCopyFor?.let { printer ->
+            ChoiceListSheet(
+                title = printer,
+                items = copyPresets.filter { it.printer == printer }.map(FilamentPresetChoice::preset),
+                anchor = copyAnchors[printer],
+                onDismiss = { choosingCopyFor = null },
+                onChoose = { picked ->
+                    choosingCopyFor = null
+                    copyChosen[printer] = picked
+                    copyChecked[printer] = true
+                },
+            )
         }
-        ChoiceListSheet(
-            title = when (which) {
-                FilamentChoice.VENDOR -> orcaString("Vendor")
-                FilamentChoice.TYPE -> orcaString("Type")
-                FilamentChoice.BASE_FILAMENT -> orcaString("Filament Preset")
-            },
-            items = items,
-            onDismiss = { choosing = null },
-            onChoose = { picked ->
-                choosing = null
-                when (which) {
-                    FilamentChoice.VENDOR -> vendor = picked
-                    FilamentChoice.TYPE -> {
-                        type = picked
-                        baseFilament = ""
+        choosing?.let { which ->
+            val items = when (which) {
+                FilamentChoice.VENDOR -> options?.vendors.orEmpty()
+                FilamentChoice.TYPE -> options?.types.orEmpty()
+                FilamentChoice.BASE_FILAMENT -> options?.baseFilaments.orEmpty()
+            }
+            ChoiceListSheet(
+                title = when (which) {
+                    FilamentChoice.VENDOR -> orcaString("Vendor")
+                    FilamentChoice.TYPE -> orcaString("Type")
+                    FilamentChoice.BASE_FILAMENT -> orcaString("Filament Preset")
+                },
+                items = items,
+                anchor = anchors[which],
+                onDismiss = { choosing = null },
+                onChoose = { picked ->
+                    choosing = null
+                    when (which) {
+                        FilamentChoice.VENDOR -> vendor = picked
+                        FilamentChoice.TYPE -> {
+                            type = picked
+                            baseFilament = ""
+                        }
+                        FilamentChoice.BASE_FILAMENT -> baseFilament = picked
                     }
-                    FilamentChoice.BASE_FILAMENT -> baseFilament = picked
-                }
-            },
-        )
+                },
+            )
+        }
     }
 }
 

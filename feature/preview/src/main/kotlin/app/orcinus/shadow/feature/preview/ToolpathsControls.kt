@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -32,6 +33,8 @@ import app.orcinus.shadow.core.model.LayerGcodeRules
 import app.orcinus.shadow.core.model.LayerGcodeType
 import androidx.compose.ui.graphics.Color
 import app.orcinus.shadow.core.designsystem.component.OrcaMovePlayer
+import app.orcinus.shadow.core.model.ShortcutAction
+import app.orcinus.shadow.core.ui.shortcuts.ShortcutHandler
 import app.orcinus.shadow.render.gcode.ToolpathsLayer
 import app.orcinus.shadow.render.gcode.ToolpathsView
 import java.util.Locale
@@ -41,6 +44,10 @@ private val ControlsMargin = 12.dp
 
 /** The room the page's sidebar button and the 3D navigator's top keep above the position's properties. */
 private val DetailsTop = 64.dp
+
+/** The widest the G-code window and the position's properties get on a wide canvas. */
+private val GcodeWindowMaxWidth = 440.dp
+private val DetailsMaxWidth = 440.dp
 
 /** The desktop slider's colour of a code that is no filament change (IMSlider::draw_ticks). */
 private val CodeMarkColor = Color(255, 111, 0)
@@ -59,7 +66,10 @@ internal class LayerGcodeUi(
  * The preview's floating controls over the toolpaths: the layer range on a
  * rail at the right edge and the moves of the top layer in a player above the
  * legend's sheet, which takes [bottomInset] at the bottom. They show what
- * OrcaSlicer's layer and moves sliders show.
+ * OrcaSlicer's layer and moves sliders show. On a [wide] canvas the windows
+ * keep to their desktop widths. A [legend] beside the canvas stands at the
+ * left from [legendTop], the layer rail under what takes [topInset] at the
+ * top right; both keep clear of the windows and the player at the bottom.
  */
 @Composable
 internal fun ToolpathsControls(
@@ -73,6 +83,10 @@ internal fun ToolpathsControls(
     /** The tool's position window right over the move slider, and its properties above the windows; null while hidden. */
     positionWindow: (@Composable (Modifier) -> Unit)? = null,
     positionDetails: (@Composable ColumnScope.() -> Unit)? = null,
+    wide: Boolean = false,
+    topInset: Dp = 0.dp,
+    legend: (@Composable (Modifier) -> Unit)? = null,
+    legendTop: Dp = 0.dp,
 ) {
     // The layer slider stands above the windows, which stand above the move slider;
     // the position's properties stand over the canvas above them.
@@ -127,6 +141,69 @@ internal fun ToolpathsControls(
     }
     // IMSlider::draw_tick_on_mouse_position(): the time the print takes up to a layer.
     val elapsed = view.layerTimes.runningFold(0f, Float::plus).drop(1)
+    // IMSlider::switch_one_layer_mode()
+    val switchOneLayer = { enabled: Boolean ->
+        if (enabled) {
+            // The remembered layer when the whole model shows, the upper layer otherwise.
+            val value = when {
+                oneLayerValue !in 0..last -> last / 2
+                view.upperLayer == last -> oneLayerValue
+                else -> view.upperLayer
+            }
+            oneLayerValue = value
+            layer.setLayerRange(value, value)
+        } else {
+            oneLayerValue = view.upperLayer
+            layer.setLayerRange(0, last)
+        }
+        oneLayer = enabled
+    }
+    // IMSlider::m_selection: the handle the keys move, the higher one unless the lower was taken last.
+    var lowerSelected by rememberSaveable { mutableStateOf(false) }
+    // The layer the moves slider starts at the beginning of, once the layer shows.
+    var movesFromStart by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(view.upperLayer, view.moves) {
+        if (movesFromStart == view.upperLayer) {
+            movesFromStart = null
+            layer.setLastVisibleMove(0)
+        }
+    }
+    ShortcutHandler { action ->
+        when (action) {
+            is ShortcutAction.LayerStep -> {
+                // m_layers_slider's active thumb; the moves slider shows every move of the new top layer.
+                if (oneLayer || !lowerSelected) {
+                    val higher = (view.upperLayer + action.steps).coerceIn(0, last)
+                    layer.setLayerRange(if (oneLayer) higher else minOf(view.lowerLayer, higher), higher)
+                } else {
+                    val lower = (view.lowerLayer + action.steps).coerceIn(0, last)
+                    layer.setLayerRange(lower, maxOf(view.upperLayer, lower))
+                }
+            }
+            is ShortcutAction.MoveStep -> {
+                val moves = view.moves.size - 1
+                val position = view.lastVisibleMove
+                when {
+                    // At the moves' start the layer below shows whole; at their end the layer above, from its start.
+                    action.steps < 0 && position == 0 && view.upperLayer > 0 -> {
+                        val higher = view.upperLayer - 1
+                        layer.setLayerRange(if (oneLayer) higher else minOf(view.lowerLayer, higher), higher)
+                    }
+                    action.steps > 0 && position >= moves && view.upperLayer < last -> {
+                        val higher = view.upperLayer + 1
+                        movesFromStart = higher
+                        layer.setLayerRange(if (oneLayer) higher else view.lowerLayer, higher)
+                    }
+                    else -> layer.setLastVisibleMove((position + action.steps).coerceIn(0, moves.coerceAtLeast(0)))
+                }
+            }
+            is ShortcutAction.MovesTo -> layer.setLastVisibleMove(if (action.end) view.moves.size - 1 else 0)
+            ShortcutAction.ToggleOneLayer -> switchOneLayer(!oneLayer)
+            ShortcutAction.GoToLayer -> if (layerGcodes != null && view.layerZs.isNotEmpty()) jumping = true else return@ShortcutHandler false
+            else -> return@ShortcutHandler false
+        }
+        true
+    }
 
     Box(modifier) {
         if (view.layerZs.isNotEmpty()) {
@@ -136,22 +213,7 @@ internal fun ToolpathsControls(
                 higher = view.upperLayer,
                 oneLayer = oneLayer,
                 onRangeChange = layer::setLayerRange,
-                onOneLayerChange = { enabled ->
-                    if (enabled) {
-                        // The remembered layer when the whole model shows, the upper layer otherwise.
-                        val value = when {
-                            oneLayerValue !in 0..last -> last / 2
-                            view.upperLayer == last -> oneLayerValue
-                            else -> view.upperLayer
-                        }
-                        oneLayerValue = value
-                        layer.setLayerRange(value, value)
-                    } else {
-                        oneLayerValue = view.upperLayer
-                        layer.setLayerRange(0, last)
-                    }
-                    oneLayer = enabled
-                },
+                onOneLayerChange = switchOneLayer,
                 label = { index ->
                     val height = resources.getString(R.string.layer_label, index + 1, String.format(Locale.ROOT, "%.2f", view.layerZs.getOrElse(index) { 0f }))
                     // The hover tooltip's time, which a phone writes beside the height.
@@ -166,12 +228,19 @@ internal fun ToolpathsControls(
                 stepUpDescription = stringResource(R.string.layer_up),
                 stepDownDescription = stringResource(R.string.layer_down),
                 oneLayerDescription = stringResource(R.string.one_layer_mode),
+                lowerSelected = lowerSelected,
+                onSelectionChange = { lowerSelected = it },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = ControlsMargin, end = ControlsMargin - 4.dp, bottom = bottomInset + MovePlayerHeight + ControlsMargin * 2 + windowSpace)
+                    .padding(top = ControlsMargin + topInset, end = ControlsMargin - 4.dp, bottom = bottomInset + MovePlayerHeight + ControlsMargin * 2 + windowSpace)
                     .fillMaxHeight(),
             )
         }
+        legend?.invoke(
+            Modifier
+                .align(Alignment.TopStart)
+                .padding(start = ControlsMargin, top = legendTop, bottom = bottomInset + MovePlayerHeight + ControlsMargin * 2 + windowSpace),
+        )
         if (windowed) {
             Column(
                 modifier = Modifier
@@ -182,7 +251,8 @@ internal fun ToolpathsControls(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                gcodeWindow?.invoke(Modifier.fillMaxWidth())
+                // GCodeWindow::render(): as wide as its lines of at most 55 characters.
+                gcodeWindow?.invoke(if (wide) Modifier.widthIn(max = GcodeWindowMaxWidth).fillMaxWidth() else Modifier.fillMaxWidth())
                 // render_position_window(): at the bottom, in the middle.
                 positionWindow?.invoke(Modifier)
             }
@@ -193,6 +263,7 @@ internal fun ToolpathsControls(
                     .align(Alignment.BottomCenter)
                     // Below the sidebar's button, scrolling when it is taller than the room left.
                     .padding(start = ControlsMargin, end = ControlsMargin, top = DetailsTop, bottom = windowsBottom + windowSpace)
+                    .then(if (wide) Modifier.widthIn(max = DetailsMaxWidth) else Modifier)
                     .verticalScroll(rememberScrollState(), reverseScrolling = true),
                 verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
                 content = positionDetails,

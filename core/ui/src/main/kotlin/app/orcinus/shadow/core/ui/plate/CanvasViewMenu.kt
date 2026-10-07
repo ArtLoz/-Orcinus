@@ -15,9 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,8 +32,11 @@ import app.orcinus.shadow.core.designsystem.component.OrcaButtonSize
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaCanvasRoundButton
 import app.orcinus.shadow.core.designsystem.component.OrcaRadioButton
-import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
+import app.orcinus.shadow.core.designsystem.component.OrcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.OrcaPickerSheet
 import app.orcinus.shadow.core.designsystem.component.OrcaSwitch
+import app.orcinus.shadow.core.designsystem.component.orcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.rememberOrcaPickerAnchor
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.AppConfigKeys
 import app.orcinus.shadow.core.model.CameraView
@@ -45,11 +46,13 @@ import app.orcinus.shadow.core.ui.orca.orcaString
 /**
  * GLCanvas3D::_render_canvas_toolbar(): the menu button and, while "Zoom
  * button" is on, the zoom button under it, which frames the selection or the
- * plate. A phone has no menu bar, so the menu, a sheet, also holds what the
- * desktop app's View menu does: the camera's views
+ * plate. A phone has no menu bar, so the menu also holds what the desktop
+ * app's View menu does: the camera's views
  * (add_common_view_menu_items(), [onView] with null for "Default View") and
  * the projection, above the canvas menu's items. What an item changes
- * OrcaSlicer.conf keeps ([onSet]).
+ * OrcaSlicer.conf keeps ([onSet]). A phone opens the menu as a sheet; a larger
+ * window drops it down from its button, as the desktop's ImGui menu opens at
+ * the canvas toolbar.
  */
 @Composable
 fun CanvasViewButtons(
@@ -64,14 +67,16 @@ fun CanvasViewButtons(
     assembly: Boolean = false,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
+    val anchor = rememberOrcaPickerAnchor()
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        OrcaCanvasRoundButton(DesignR.drawable.orca_canvas_menu, orcaString("View"), onClick = { open = true })
+        OrcaCanvasRoundButton(DesignR.drawable.orca_canvas_menu, orcaString("View"), onClick = { open = true }, modifier = Modifier.orcaPickerAnchor(anchor))
         if (canvas.zoomButton) {
             OrcaCanvasRoundButton(DesignR.drawable.orca_canvas_zoom, orcaString("Fit camera to scene or selected object."), onClick = onZoom)
         }
     }
     if (open) {
         CanvasViewSheet(
+            anchor = anchor,
             canvas = canvas,
             preview = preview,
             assembly = assembly,
@@ -99,9 +104,10 @@ fun navigatorFaceLabels(): List<String> = listOf(
     orcaString("Left", "Camera"),
 )
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CanvasViewSheet(
+    anchor: OrcaPickerAnchor,
     canvas: CanvasPreferences,
     preview: Boolean,
     assembly: Boolean,
@@ -110,18 +116,12 @@ private fun CanvasViewSheet(
     onDismiss: () -> Unit,
 ) {
     val colors = OrcaTheme.colors
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.window, dragHandle = { OrcaSheetHandle() }) {
+    OrcaPickerSheet(anchor = anchor, onDismissRequest = onDismiss, title = orcaString("View"), minPopupWidth = MENU_WIDTH) {
         Column(
             Modifier
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState()),
         ) {
-            Text(
-                orcaString("View"),
-                color = colors.text,
-                style = OrcaTheme.typography.head16,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
             // add_common_view_menu_items()
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -216,3 +216,6 @@ private val VIEWS = listOf(
     Triple("Left", "Camera", CameraView.LEFT),
     Triple("Right", "Camera", CameraView.RIGHT),
 )
+
+/** The drop-down's width, wide enough for the views' buttons in three rows and the switches' details. */
+private val MENU_WIDTH = 360.dp

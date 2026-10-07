@@ -24,6 +24,8 @@ import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaComboField
+import app.orcinus.shadow.core.designsystem.component.orcaPickerAnchor
+import app.orcinus.shadow.core.designsystem.component.rememberOrcaPickerAnchor
 import app.orcinus.shadow.core.designsystem.component.OrcaSegmentedSwitch
 import app.orcinus.shadow.core.designsystem.component.OrcaTextField
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -62,6 +64,9 @@ internal fun Printer3dOsSendPage(
         if (answer is Printer3dOsListsOutcome.Success) printerType = answer.initialPrinterType(printer.printerModel)
     }
 
+    // The fields the lists of projects and printer types drop down from on a large window.
+    val projectAnchor = rememberOrcaPickerAnchor()
+    val typeAnchor = rememberOrcaPickerAnchor()
     Column(Modifier.padding(horizontal = 16.dp)) {
         Text(
             text = orcaString("3DPrinterOS Cloud upload options"),
@@ -109,7 +114,9 @@ internal fun Printer3dOsSendPage(
                                 )
                             }
                         },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .orcaPickerAnchor(projectAnchor),
                     )
                 }
                 Label(orcaString("Printer type:"))
@@ -117,6 +124,7 @@ internal fun Printer3dOsSendPage(
                     text = printerType?.let { answer.printerTypes[it].description }.orEmpty(),
                     onClick = { choosingType = true },
                     enabled = answer.printerTypes.isNotEmpty(),
+                    modifier = Modifier.orcaPickerAnchor(typeAnchor),
                 )
                 if (answer.asksForPrinterType) {
                     Text(
@@ -150,6 +158,7 @@ internal fun Printer3dOsSendPage(
                 if (choosingProject) {
                     ChoiceListSheet(
                         title = orcaString("Project:"),
+                        anchor = projectAnchor,
                         items = answer.projects.map { it.name },
                         onDismiss = { choosingProject = false },
                         onChoose = {
@@ -162,6 +171,7 @@ internal fun Printer3dOsSendPage(
                     val descriptions = answer.printerTypes.map { it.description }
                     ChoiceListSheet(
                         title = orcaString("Printer type:"),
+                        anchor = typeAnchor,
                         items = descriptions,
                         onDismiss = { choosingType = false },
                         onChoose = {
