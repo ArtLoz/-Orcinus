@@ -1,141 +1,237 @@
 <div align="center">
 
-<img src="branding/logo.svg" width="112" alt="Orcinus">
+<img src="fastlane/metadata/android/en-US/images/featureGraphic.png" alt="Orcinus — 3D printing slicer for Android" width="100%">
 
-# Orcinus
+### The complete OrcaSlicer engine, running natively on Android.
 
-**The OrcaSlicer engine on your Android phone.**
-
-Slice 3D models into G-code right on the device: no computer, no cloud.
+Prepare, slice, and send 3D prints from your phone or tablet.<br>
+No computer, no cloud, and the same G-code as desktop OrcaSlicer.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 [![OrcaSlicer 2.4.2](https://img.shields.io/badge/OrcaSlicer-2.4.2-009688)](https://github.com/OrcaSlicer/OrcaSlicer/releases/tag/v2.4.2)
+![Version 0.1.0](https://img.shields.io/badge/version-0.1.0-informational)
 ![Android 10+](https://img.shields.io/badge/Android-10%2B-3DDC84?logo=android&logoColor=white)
 ![arm64-v8a](https://img.shields.io/badge/ABI-arm64--v8a-555)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.3-7F52FF?logo=kotlin&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack_Compose-Material_3-4285F4?logo=jetpackcompose&logoColor=white)
-![Status: early preview](https://img.shields.io/badge/status-early_preview-orange)
 
 **English** · [Русский](README.ru.md)
+
+[Features](#features) · [How it works](#how-it-works) · [Verification](#verified-against-desktop-orcaslicer) · [Building](#building-from-source) · [Contributing](#contributing)
 
 </div>
 
 ---
 
-Orcinus does not reimplement a slicer. It builds **OrcaSlicer's own `libslic3r`**,
-its dependencies, and its printer profiles for Android, straight from the
-upstream sources, so a model sliced on the phone gives the G-code desktop
-OrcaSlicer would.
+## Overview
 
-## Highlights
+Orcinus is a full 3D-printing slicer for Android. Instead of reimplementing a
+slicer or sending your models to a server, it compiles **OrcaSlicer's own C++
+engine** (`libslic3r`, its 17 dependencies, and the system profiles of all 66
+printer vendors) for Android, and drives it from a touch-first interface.
 
-|  |  |
-| --- | --- |
-| 🧩 **The real engine** | OrcaSlicer 2.4.2 compiled for `arm64-v8a` from its unmodified sources and dependency recipes. Its own test suites pass on a Pixel 8 Pro. |
-| 🎯 **Desktop parity** | G-code from the phone is compared with official OrcaSlicer 2.4.2: 10 models, same layers and settings, extrusion within 1 %. [Details](docs/golden-comparison.md) |
-| ⚡ **Slices in the background** | The engine runs in its own process as a foreground service: progress and a cancel button in a notification, and a native crash never takes the app down. |
-| 🎨 **Feels like OrcaSlicer** | OrcaSlicer's colours, icons, and workspace layout, light and dark, with an adaptive layout for phones and wider screens. |
-| 🔒 **Private by design** | No analytics, no accounts. Goes online only for printer profile updates (can be turned off) and the printers you add. |
-| 🆓 **Free software** | GNU AGPL v3.0, like OrcaSlicer. Every bundled component and its license is listed in the app. |
+Every slicing decision comes from the OrcaSlicer code. A model sliced on the
+phone produces the G-code that desktop OrcaSlicer 2.4.2 produces with the same
+profiles, and an automated comparison checks this on every engine change.
 
-## Roadmap
+> [!NOTE]
+> **Status: pre-release (0.1.0).** OrcaSlicer 2.4.2's FFF workflow is ported
+> and verified on a device. The app is not yet published on Google Play; build
+> it from source as described [below](#building-from-source).
 
-Orcinus is an early preview: it slices, but it is not yet a full slicer app.
+## Features
 
-- [x] OrcaSlicer engine and its dependencies built for Android; upstream tests pass on a device
-- [x] Import STL models, or add a 20 mm calibration cube
-- [x] Slicing in the background with progress and cancellation
-- [x] G-code verified against desktop OrcaSlicer
-- [x] OrcaSlicer-style workspace, themes, and the About page with licenses
-- [x] 3D plate view: the printer's bed, model, and texture, orbit, pan, and zoom
-- [x] OrcaSlicer's canvas toolbar: move, rotate, scale, lay on face, auto orient, and arrange an object; auto drop can be turned off to lift it
-- [ ] G-code preview with OrcaSlicer's `libvgcode`
-- [ ] Printer, filament, and process selection (the preview ships Creality K2 Plus profiles)
-- [ ] Settings editor, 3MF and STEP, sending jobs to printers
-- [ ] English interface (the preview is in Russian)
-- [ ] Google Play release
+### Prepare
+- **Multi-plate workspace** with OrcaSlicer's 3D view: realistic shading with
+  shadows and ambient occlusion, a view cube, object labels, overhang
+  highlighting, and sequential-print clearances.
+- **Open almost anything:** STL, OBJ with colours, 3MF projects, STEP, AMF,
+  SVG, and ZIP archives, from the file picker, from *Open with* and *Share*,
+  or by drag and drop. OrcaSlicer's handy models and test models are built in.
+- **Object tools:** move, rotate, scale, lay on face, auto-orient, arrange and
+  fill the bed, cut with connectors, mesh booleans, text and SVG embossing,
+  measure, brim ears, assembly view, simplify, and repair.
+- **Painting:** supports, seams, fuzzy skin, and multi-material colours.
+- **Per-object control:** an object list with parts, modifiers, height ranges,
+  and copies; per-object and per-plate settings; variable layer height; and
+  OrcaSlicer's Parameter Table for every object's key settings at once.
+
+### Slice and preview
+- **Background slicing** in a separate process, with progress and Cancel in a
+  notification. A crash inside the engine never takes the app down.
+- **G-code preview** on OrcaSlicer's own `libvgcode`: layer and move sliders,
+  16 legend views (line type, speed, flow, layer time, temperature, pressure
+  advance, and more), the G-code window, and the tool position.
+- **Warnings that help:** OrcaSlicer's slicing warnings and errors, each with
+  *Jump to* the object or setting at fault.
+- **Output:** save G-code or a sliced `.gcode.3mf`, export toolpaths as OBJ,
+  share through Android, or open any existing `.gcode` and `.gcode.3mf`.
+
+### Printers, filaments, and settings
+- **OrcaSlicer's setup wizard** with the profiles of all 66 vendors, plus
+  online profile updates (can be turned off).
+- **The complete settings tabs** for printer, filament, and process: every
+  page and option, with OrcaSlicer's validation, search, preset comparison,
+  and the questions it asks before discarding or transferring changes.
+- **Multi-material:** filament slots, flushing volumes, wipe tower, and
+  ramming.
+- **Calibration:** temperature, flow ratio, pressure advance, retraction,
+  max flow rate, VFA, input shaping, and cornering.
+
+### Print
+- **Send to 16 kinds of printer hosts:** OctoPrint/Klipper, Moonraker,
+  PrusaLink, PrusaConnect, Duet, FlashAir, AstroBox, Repetier, MKS, ESP3D,
+  CrealityPrint (with CFS material mapping), Flashforge, Elegoo Link, Obico,
+  SimplyPrint, and 3DPrinterOS.
+- **Printer discovery** on the local network, and an upload queue that keeps
+  running after you leave the screen.
+
+### Everywhere
+- **OrcaSlicer's 22 languages** (the app's own texts are in English and
+  Russian), light and dark themes, and layouts for phones and tablets.
+- **Projects:** autosave and recovery after a crash, recent projects, and
+  OrcaSlicer's project info.
+- **Private by design:** no accounts, analytics, or ads. Orcinus goes online
+  only to check for profile updates (can be turned off), to reach the printers
+  you add, and to run the network test when you start it.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    subgraph ui["App process"]
+    subgraph app["App process · Kotlin + Jetpack Compose"]
         direction TB
-        features["Feature screens<br/>Prepare · Preview · Sidebar · About"] --> domain["Domain use cases"]
-        domain --> remote["RemoteSlicerEngine"]
+        ui["Feature screens<br/>Home · Prepare · Preview · Device · Project"]
+        render["3D canvas · OpenGL ES<br/>libvgcode toolpaths"]
+        domain["Domain use cases"]
+        port["SlicerEngine port"]
+        ui --> domain
+        ui --> render
+        domain --> port
     end
-    subgraph slicer[":slicer process"]
+    subgraph slicer[":slicer process · foreground service"]
         direction TB
-        service["SlicerService<br/>foreground service"] --> bridge["JNI bridge"]
-        bridge --> orca["OrcaSlicer libslic3r<br/>PresetBundle · Print · G-code export"]
+        service["SlicerService"] --> jni["JNI bridge"]
+        jni --> orca["OrcaSlicer libslic3r 2.4.2<br/>PresetBundle · Model · Print · GCode"]
     end
-    remote -- AIDL --> service
-    upstream[("upstream/OrcaSlicer<br/>pinned submodule")] -. built by engine/ .-> orca
+    port -- AIDL --> service
+    upstream[("upstream/OrcaSlicer<br/>pinned submodule")] -. "built by engine/" .-> orca
 ```
 
-- **Upstream stays untouched.** OrcaSlicer is a pinned Git submodule. `engine/`
-  reads its source lists and dependency recipes, so updating OrcaSlicer means
-  moving the submodule and rebuilding, not porting code.
-- **Clean architecture.** Every screen is its own feature module on top of
-  domain use cases and an OrcaSlicer-based design system; the engine is reached
-  only through a port. See [`docs/architecture.md`](docs/architecture.md).
-
-| Path | What is there |
-| --- | --- |
-| [`app/`](app) | Composition root, navigation, the `:slicer` service |
-| [`feature/`](feature) | Screens: Prepare, Preview, Sidebar, About |
-| [`core/designsystem/`](core/designsystem) | OrcaSlicer's colours, type, icons, and components in Compose |
-| [`domain/`](domain), [`data/`](data) | Use cases and repositories |
-| [`slicing/`](slicing) | Engine port, AIDL service, JNI adapter |
-| [`engine/`](engine) | Android build of OrcaSlicer and its dependencies |
-| [`upstream/`](upstream) | The pinned OrcaSlicer submodule |
-| [`scripts/`](scripts) | Engine build, device tests, desktop comparison, license notices |
-| [`docs/`](docs) | Architecture, work plan, publishing (mostly in Russian) |
-
-## Building
-
-**You need:** Android Studio (its JDK), Android SDK with NDK 28.2.13676358,
-CMake 3.25+ and Ninja on `PATH`, Python 3, and an `arm64` Android device.
-The first build of the dependencies takes about an hour.
-
-```sh
-git clone --recurse-submodules https://github.com/ArtLoz/-Orcinus.git
-cd ./-Orcinus
-```
-
-Create `local.properties` with `sdk.dir=<path to the Android SDK>`, then:
-
-```powershell
-# OrcaSlicer's dependencies for Android, once
-powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/engine.ps1 -Stage deps
-
-# The app; Gradle builds liborcinus_engine.so together with libslic3r
-./gradlew.bat :app:assembleDebug
-```
+- **Upstream stays untouched.** OrcaSlicer is a pinned Git submodule. The
+  `engine/` build reads its source lists and dependency recipes, so updating
+  OrcaSlicer means moving the submodule and rebuilding, not porting code. The
+  only patch adapts `libvgcode` to OpenGL ES.
+- **A faithful port.** The desktop app's behaviour (its dialogs, menus,
+  validation, and edge cases) is ported function by function from
+  OrcaSlicer's GUI code, and each port names the original it follows. Only the
+  presentation changes, to touch-first mobile patterns.
+- **Isolated engine.** `libslic3r` runs only in the `:slicer` process behind
+  an AIDL service, so heavy slicing never blocks the interface and a native
+  crash cannot close the app.
+- **Clean architecture.** Screens are independent feature modules on top of
+  domain use cases; the engine is reached only through a port. See
+  [`docs/architecture.md`](docs/architecture.md).
 
 <details>
-<summary><b>Run OrcaSlicer's tests on a device</b></summary>
+<summary><b>Repository layout</b></summary>
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/engine.ps1 -Stage all -Target libslic3r_tests,fff_print_tests
-powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/engine-test.ps1 -Suite fff_print_tests
-powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/engine-test.ps1 -Suite libslic3r_tests
-```
+| Path | Contents |
+| --- | --- |
+| [`app/`](app) | Application shell: dependency wiring, navigation, the `:slicer` service |
+| [`feature/`](feature) | Screens: `home`, `prepare`, `preview`, `device`, `project`, `sidebar`, `settings`, `setup`, `preferences`, `objecttable`, `about` |
+| [`core/`](core) | `model` (pure Kotlin state), `designsystem` (OrcaSlicer's theme, icons, and components in Compose), `ui` (shared dialogs and menus) |
+| [`domain/`](domain) | Use cases: the application logic ported from OrcaSlicer's GUI |
+| [`data/`](data) | Plate state repository and third-party license notices |
+| [`render/`](render) | `scene`: the 3D canvas; `gcode`: OrcaSlicer's `libvgcode` over JNI |
+| [`slicing/`](slicing) | `api`: the engine port; `service`: the AIDL service; `native`: the JNI bridge and the C++ adapter over `libslic3r` |
+| [`network/`](network) | Print host clients and printer discovery |
+| [`storage/`](storage) | Projects, documents, and scene files on Android storage |
+| [`engine/`](engine) | CMake build of OrcaSlicer and its dependencies for Android arm64 |
+| [`upstream/`](upstream) | OrcaSlicer, pinned in [`orca.lock.json`](upstream/orca.lock.json) |
+| [`scripts/`](scripts) | Engine build, device tests, desktop comparison, license notices |
+| [`docs/`](docs) | Architecture, slicing contract, work plan, publishing (mostly in Russian) |
 
-See [`engine/README.md`](engine/README.md).
 </details>
 
-<details>
-<summary><b>Compare with desktop OrcaSlicer</b></summary>
+## Verified against desktop OrcaSlicer
+
+Every capability is reported at one of three levels: **C**, it compiles;
+**R**, it runs and passes checks on a real device; **G**, its result matches
+desktop OrcaSlicer. The engine is held to G.
+
+| Check | Latest result on a Pixel 8 Pro |
+| --- | --- |
+| OrcaSlicer's own `fff_print_tests` | 37 of 37 test cases |
+| OrcaSlicer's own `libslic3r_tests` | 114 test cases, 48,537 assertions |
+| App ↔ engine integration (`orca_engine_adapter_tests`) | 154 test cases, 5,296 assertions |
+| G-code vs. the official OrcaSlicer 2.4.2 build | 10 reference models: the same layers, filament within 0.03 %, print time within ±2 s |
+
+The comparison downloads the official desktop release (pinned by hash),
+slices the same models with the same profiles on the desktop and on the phone,
+and compares the G-code move by move. See
+[`docs/golden-comparison.md`](docs/golden-comparison.md).
+
+## Building from source
+
+### Requirements
+
+- Windows 10 or 11: the build scripts use PowerShell, and the engine build
+  fetches MSYS2 for GMP and MPFR on its own
+- Android Studio, with `JAVA_HOME` pointing to its bundled JDK (`jbr`), and
+  the Android SDK with NDK **28.2.13676358**
+- CMake 3.25+ and Ninja on `PATH`, and Python 3
+- An arm64 device with Android 10 or newer
+
+### Build and install
+
+Open the project once in Android Studio, which writes `local.properties` with
+the SDK path, or create the file yourself with `sdk.dir=C:/path/to/Android/Sdk`.
 
 ```powershell
+git clone --recurse-submodules https://github.com/ArtLoz/-Orcinus.git
+cd ./-Orcinus
+
+# OrcaSlicer's dependencies for Android: once, about an hour
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/engine.ps1 -Stage deps
+
+# The app; Gradle builds the engine library together with libslic3r
+./gradlew.bat :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+<details>
+<summary><b>Run the tests</b></summary>
+
+```powershell
+# Unit tests of the app's logic, UI, and network layers
+./gradlew.bat :domain:test :core:ui:testDebugUnitTest :feature:sidebar:testDebugUnitTest :network:printhost:test
+
+# OrcaSlicer's suites and the integration suite on a connected device
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/engine.ps1 -Stage all -Target libslic3r_tests,fff_print_tests,orca_engine_adapter_tests
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/engine-test.ps1 -Suite fff_print_tests
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/engine-test.ps1 -Suite orca_engine_adapter_tests
+
+# G-code comparison with desktop OrcaSlicer
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/engine.ps1 -Stage engine -Target orca_engine_slice
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/golden.ps1
 ```
 
-The script downloads the official OrcaSlicer 2.4.2 build (pinned by hash),
-slices the same models on the desktop and on the phone, and compares the
-G-code. See [`docs/golden-comparison.md`](docs/golden-comparison.md).
+More in [`engine/README.md`](engine/README.md).
+</details>
+
+<details>
+<summary><b>Update OrcaSlicer</b></summary>
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/update-orca.ps1 -Ref v2.4.3
+powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/engine.ps1 -Stage all -Target libslic3r_tests,fff_print_tests,orca_engine_adapter_tests
+./gradlew.bat :domain:test :app:assembleDebug
+python scripts/notices/update_notices.py
+```
+
+Then run the device suites and the desktop comparison. The rules are in
+[`docs/upstream.md`](docs/upstream.md).
 </details>
 
 <details>
@@ -149,10 +245,19 @@ repository. See [`docs/publishing.md`](docs/publishing.md).
 ```
 </details>
 
+## Not included
+
+Some OrcaSlicer features depend on closed services or on a desktop and are
+out of scope: Bambu Lab's cloud, device monitor, AMS, and dual-nozzle printers
+(they need Bambu's closed network plug-in), Orca Cloud accounts and model
+downloads, desktop window and mouse settings, file associations, and USD, ABC,
+and PLY import (macOS-only in OrcaSlicer).
+
 ## Contributing
 
 Issues and pull requests are welcome, in English or Russian. Start with
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+[`CONTRIBUTING.md`](CONTRIBUTING.md), and say in a pull request what you
+verified on a device and what only compiles.
 
 ## License
 
