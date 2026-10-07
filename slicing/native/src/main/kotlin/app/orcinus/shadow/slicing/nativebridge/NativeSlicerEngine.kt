@@ -1631,6 +1631,7 @@ class NativeSlicerEngine(context: Context) :
                 is Manipulation.Mirror -> 6L + manipulation.axis.ordinal
                 Manipulation.Center -> 9L
                 Manipulation.Drop -> 10L
+                Manipulation.ObjectChanged -> 11L
             },
             faceNormal = (manipulation as? Manipulation.LayOnFace)?.normal?.let { doubleArrayOf(it.x, it.y, it.z) },
         )

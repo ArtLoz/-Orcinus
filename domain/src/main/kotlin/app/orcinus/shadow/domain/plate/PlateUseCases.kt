@@ -1195,6 +1195,9 @@ class AddModelToPlateUseCase(
         var before: SlicingProfileSelection? = null
         var split: ScenePath? = null
         var exportedPlates: List<OutputPath?>? = null
+        // Plater::load_project() of a project that is no restored backup.
+        val opensProject = outcome is ModelLoadOutcome.Success && !batch.restore &&
+            (outcome.project != null || batch.load == ModelLoad.PROJECT || batch.loadProject)
         repository.update { state ->
             next = null
             done = false
@@ -1345,8 +1348,17 @@ class AddModelToPlateUseCase(
             }
         }
         // The plate follows the presets as any change of them: its description, the fit of its objects, the tabs.
-        if (presets != null) {
-            applicationScope.launch { platePresets.apply(before, presets) }
+        if (presets != null || opensProject) {
+            applicationScope.launch {
+                if (presets != null) platePresets.apply(before, presets)
+                // load_project() ends with reset_project_dirty_initial_presets() and
+                // up_to_date(true, ...): the project as its load left it, the plates'
+                // plate types for the printer included, is the saved one.
+                if (opensProject) {
+                    presetManager.updateSavedPresets()
+                    repository.update { it.withPresetsSaved().copy(project = it.projectBaseline()) }
+                }
+            }
         }
         // load_model_objects() closes UpdatedItemsInfo, then add_object_to_list()
         // of the last object it loaded tells of a part of a cut with connectors
@@ -2143,6 +2155,12 @@ class AddObjectPartUseCase(
     private val applicationScope: CoroutineScope,
     /** do_not_show_modifer_tips: the "Add Modifier" tip was turned off. */
     private val modifierTipsOff: () -> Boolean = { true },
+    /**
+     * The object measured anew with its new part, where it stands (the
+     * desktop app's sidebar measures the object as it shows it), and judged
+     * against the build volume again.
+     */
+    private val placePlateObjects: PlacePlateObjectsUseCase? = null,
 ) {
     operator fun invoke(mesh: ScenePath, shape: String, type: VolumeType, name: String = "") {
         var request: Pair<PlateObject, SlicingProfileSelection>? = null
@@ -2202,6 +2220,8 @@ class AddObjectPartUseCase(
             }
             if (outcome !is ModelInspectionOutcome.Success || repository.state.value.objects.withMesh(mesh) == null) {
                 sceneFiles.deleteObjectMesh(partMesh)
+            } else {
+                placePlateObjects?.invoke(PlateManipulation.UpdatePrintVolume)
             }
         }
     }
@@ -2235,7 +2255,11 @@ private const val EXTRUDER_SETTING = "extruder"
  * bring the part back. Once the object is its own mesh alone, the settings of
  * that mesh become the object's (ObjectList::del_subobject_from_object).
  */
-class RemoveObjectPartUseCase(private val repository: PlateRepository) {
+class RemoveObjectPartUseCase(
+    private val repository: PlateRepository,
+    /** Plater::changed_object() of the object a part left. */
+    private val placePlateObject: PlacePlateObjectUseCase? = null,
+) {
     /**
      * Selection::erase() of several volumes of one object
      * (ObjectList::delete_from_model_and_list()): from the last on, each part
@@ -2249,9 +2273,11 @@ class RemoveObjectPartUseCase(private val repository: PlateRepository) {
     fun all(ids: List<ObjectPartId>): RemovedParts {
         var ownVolume = false
         var recorded = false
+        var settled: ScenePath? = null
         repository.update { state ->
             ownVolume = false
             recorded = false
+            settled = null
             val mesh = ids.firstOrNull()?.mesh ?: return@update state
             val target = state.objects.withMesh(mesh)
             if (target == null || state.busy || ids.any { it.mesh != mesh }) return@update state
@@ -2267,6 +2293,7 @@ class RemoveObjectPartUseCase(private val repository: PlateRepository) {
             val asked = if (question != null) state.copy(plateQuestion = question) else state
             if (updated == target) return@update asked
             recorded = true
+            settled = mesh
             asked.recorded().copy(
                 selectedPart = null,
                 selectedPartGroup = emptySet(),
@@ -2274,6 +2301,7 @@ class RemoveObjectPartUseCase(private val repository: PlateRepository) {
                 result = null,
             )
         }
+        settled?.let(::changed)
         return RemovedParts(ownVolume, recorded)
     }
 
@@ -2281,7 +2309,9 @@ class RemoveObjectPartUseCase(private val repository: PlateRepository) {
     data class RemovedParts(val ownVolume: Boolean, val recorded: Boolean)
 
     operator fun invoke(id: ObjectPartId) {
+        var removed = false
         repository.update { state ->
+            removed = false
             val target = state.objects.withMesh(id.mesh)
             // The object's own mesh goes through the engine (EditPlateObjectUseCase.deleteOwnVolume()).
             val part = target?.parts?.getOrNull(id.index - 1)
@@ -2289,6 +2319,7 @@ class RemoveObjectPartUseCase(private val repository: PlateRepository) {
             // A solid part or a negative volume of a part of a cut stays; the user is asked to invalidate the cut first.
             target.cutVolumeQuestion(part.type)?.let { return@update state.copy(plateQuestion = it) }
             val updated = target.withoutPart(id.index)
+            removed = true
             state.recorded().copy(
                 // The volumes after it move up, and none is listed once the object is its own mesh alone.
                 selectedPart = state.selectedPart?.takeUnless { it.mesh == id.mesh && (it.index >= id.index || updated.parts.isEmpty()) },
@@ -2296,6 +2327,19 @@ class RemoveObjectPartUseCase(private val repository: PlateRepository) {
                 objects = state.objects.replaced(updated),
                 result = null,
             )
+        }
+        if (removed) changed(id.mesh)
+    }
+
+    /**
+     * Plater::changed_object() of the object with the [mesh] file in the same
+     * step of Undo: every copy rests on the plate again unless it is sunk, and
+     * the engine measures it anew.
+     */
+    private fun changed(mesh: ScenePath) {
+        val target = repository.state.value.objects.withMesh(mesh) ?: return
+        target.instances.forEachIndexed { index, copy ->
+            placePlateObject?.invoke(PlateInstanceId(mesh, index), copy.inspection.placement, Manipulation.ObjectChanged, record = false)
         }
     }
 }

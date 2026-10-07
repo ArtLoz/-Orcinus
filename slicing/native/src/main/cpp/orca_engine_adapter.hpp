@@ -649,6 +649,9 @@ enum class Manipulation : std::int64_t {
     // Selection::drop(): the copy moved down or up until it touches the plate,
     // whether it drops by itself or not.
     drop = 10,
+    // Plater::changed_object() in the 3D view after a volume went:
+    // ModelObject::ensure_on_bed(true), which leaves a sunk object sunk.
+    object_changed = 11,
 };
 
 // How the desktop app's jobs place several objects of the plate at once.

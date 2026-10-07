@@ -52,6 +52,13 @@ sealed interface Manipulation {
 
     /** Selection::drop(): the copy down or up to the plate, whether it drops by itself or not. */
     data object Drop : Manipulation
+
+    /**
+     * Plater::changed_object() after a volume left the object: it rests on the
+     * plate again unless it is sunk (ModelObject::ensure_on_bed(true)), and
+     * is measured anew.
+     */
+    data object ObjectChanged : Manipulation
 }
 
 /** Slic3r::Axis. */

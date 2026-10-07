@@ -4162,6 +4162,9 @@ InstancePlacement place_instance(
         case Manipulation::ensure_on_bed:
             object.ensure_on_bed();
             break;
+        case Manipulation::object_changed:
+            object.ensure_on_bed(true);
+            break;
         case Manipulation::mirror_x:
         case Manipulation::mirror_y:
         case Manipulation::mirror_z: {

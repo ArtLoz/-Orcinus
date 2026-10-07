@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.Hyphens
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -325,7 +326,8 @@ private fun ProfileCounts.cells(): List<String> = listOf(active.toString(), "/",
 @Composable
 private fun CountsRow(label: String, cells: List<String>, header: Boolean = false) {
     val colors = OrcaTheme.colors
-    val style = if (header) OrcaTheme.typography.body12 else OrcaTheme.typography.body14
+    // A heading longer than its column ("Пользовательские") breaks over two lines with a hyphen.
+    val style = if (header) OrcaTheme.typography.body12.copy(hyphens = Hyphens.Auto) else OrcaTheme.typography.body14
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -342,7 +344,7 @@ private fun CountsRow(label: String, cells: List<String>, header: Boolean = fals
                     color = if (header || separator) colors.textSide else colors.text,
                     style = if (separator) OrcaTheme.typography.body12 else style,
                     textAlign = TextAlign.Center,
-                    maxLines = 1,
+                    maxLines = if (header) 2 else 1,
                 )
             }
         }
@@ -390,7 +392,7 @@ private const val DOTS = "..."
 private const val ZIP_MIME_TYPE = "application/zip"
 private const val JSON_MIME_TYPE = "application/json"
 private val COMBO_WIDTH = 140.dp
-private val COUNT_WIDTH = 64.dp
+private val COUNT_WIDTH = 72.dp
 private val SEPARATOR_WIDTH = 16.dp
 
 private val PreviewSystem = SystemInformation(

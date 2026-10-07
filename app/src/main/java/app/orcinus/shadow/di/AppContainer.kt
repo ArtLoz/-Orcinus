@@ -606,9 +606,14 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     private val deletePlateObject = DeletePlateObjectUseCase(plateRepository)
     private val plateObjects = PlateObjectsUseCase(plateRepository, deletePlateObject)
     private val addPlateInstance = AddPlateInstanceUseCase(plateRepository, placePlateObject, selectPlateObject)
-    private val addObjectPart = AddObjectPartUseCase(engine, sceneFiles, plateRepository, applicationScope) {
-        appPreferences[AppConfigKeys.DO_NOT_SHOW_MODIFIER_TIPS].isNotEmpty()
-    }
+    private val addObjectPart = AddObjectPartUseCase(
+        engine,
+        sceneFiles,
+        plateRepository,
+        applicationScope,
+        modifierTipsOff = { appPreferences[AppConfigKeys.DO_NOT_SHOW_MODIFIER_TIPS].isNotEmpty() },
+        placePlateObjects = placePlateObjects,
+    )
     private val loadObjectVolumes = LoadObjectVolumesUseCase(
         ImportModelUseCase(modelFiles),
         engine,
@@ -617,7 +622,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         plateRepository,
         applicationScope,
     )
-    private val removeObjectPart = RemoveObjectPartUseCase(plateRepository)
+    private val removeObjectPart = RemoveObjectPartUseCase(plateRepository, placePlateObject)
     private val removePlateInstance = RemovePlateInstanceUseCase(plateRepository, deletePlateObject)
     private val removeLastPlateInstances = RemoveLastPlateInstancesUseCase(plateRepository, deletePlateObject)
     private val setNumberOfInstances = SetNumberOfInstancesUseCase(plateRepository, addPlateInstance, removeLastPlateInstances, deletePlateObject)

@@ -962,6 +962,7 @@ internal fun Manipulation.parcelName(): String = when (this) {
     is Manipulation.Mirror -> "Mirror${axis.name}"
     Manipulation.Center -> "Center"
     Manipulation.Drop -> "Drop"
+    Manipulation.ObjectChanged -> "ObjectChanged"
 }
 
 internal fun Manipulation.parcelFaceNormal(): DoubleArray? = (this as? Manipulation.LayOnFace)?.normal?.let { doubleArrayOf(it.x, it.y, it.z) }
@@ -978,6 +979,7 @@ internal fun manipulationOf(name: String, faceNormal: DoubleArray?): Manipulatio
     "MirrorZ" -> Manipulation.Mirror(Axis.Z)
     "Center" -> Manipulation.Center
     "Drop" -> Manipulation.Drop
+    "ObjectChanged" -> Manipulation.ObjectChanged
     else -> error("Unknown manipulation $name")
 }
 

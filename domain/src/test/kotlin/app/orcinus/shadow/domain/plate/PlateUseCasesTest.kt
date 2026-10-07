@@ -1014,6 +1014,34 @@ class PlateUseCasesTest {
     }
 
     @Test
+    fun `an opened project is not dirty once its presets settled the plate, and a part that leaves an object resettles it`() {
+        val repository = FakeRepository(readyState())
+        val file = ImportedModelFile(ModelPath("/imports/p.3mf"), "p.3mf")
+        val inspector = FakeInspector()
+        val project = LoadedProject(listOf(ProjectPlate(settings = ModelSettings(mapOf("curr_bed_type" to "Textured PEI Plate")))))
+        inspector.load = { ModelLoadOutcome.Success(listOf(LOADED), emptyList(), project = project, presetsChanged = true) }
+        // PartPlateList::check_all_plate_local_bed_type(): the project's printer takes no such plate type.
+        val dropsPlateType = PresetsApplier { _, _ ->
+            repository.update { state -> state.copy(plates = state.plates.map { it.copy(settings = ModelSettings()) }, plateSettings = ModelSettings()) }
+        }
+
+        addModel(repository, ModelImportOutcome.Success(file), inspector, FakeSceneFiles(), platePresets = dropsPlateType)(REFERENCE)
+
+        // Plater::load_project() ends with up_to_date(true, ...).
+        assertTrue(repository.state.value.plateSettings.values.isEmpty())
+        assertFalse(repository.state.value.projectDirty)
+
+        // Plater::changed_object() after a part left the object: the engine places every copy anew.
+        val withPart = CUBE.copy(parts = listOf(PART))
+        val partRepository = FakeRepository(readyState(withPart))
+        val placing = FakeInspector()
+        RemoveObjectPartUseCase(partRepository, placePlateObject(placing, partRepository))(ObjectPartId(withPart.mesh, 1))
+        assertEquals(Manipulation.ObjectChanged, placing.manipulation)
+        assertTrue(partRepository.state.value.objects.single().parts.isEmpty())
+        assertEquals(1, partRepository.state.value.history.undo.size)
+    }
+
+    @Test
     fun `a 3MF file asks how it opens on a plate with objects, and a project takes the plate's place`() {
         val repository = FakeRepository(readyState(CUBE).let { it.copy(history = PlateHistory(undo = listOf(it.snapshot()))) })
         val file = ImportedModelFile(ModelPath("/imports/p.3mf"), "p.3mf")
@@ -3538,6 +3566,7 @@ class PlateUseCasesTest {
         preferences: AppPreferences = preferences(),
         stepMeshPrompt: StepMeshPrompt = StepMeshPrompt(inspector, preferences, repository),
         recentProjects: RecentProjects? = null,
+        platePresets: PresetsApplier = PresetsApplier { _, _ -> },
         /** The file of every document picked; [imported] for all by default. */
         importedBy: ((ExternalDocumentReference) -> ModelImportOutcome)? = null,
     ) =
@@ -3550,7 +3579,7 @@ class PlateUseCasesTest {
             repository = repository,
             placePlateObjects = PlacePlateObjectsUseCase(PlaceModelsUseCase(inspector), repository, scope),
             presetManager = FakePresetManager(),
-            platePresets = PresetsApplier { _, _ -> },
+            platePresets = platePresets,
             confirmClose = ProjectCloseConfirmation { true },
             applicationScope = scope,
             preferences = preferences,
