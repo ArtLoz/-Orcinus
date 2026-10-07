@@ -26,6 +26,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -425,6 +427,7 @@ fun PlateView(
         val measureDimensions by controller.measureDimensions.collectAsState()
         SideEffect { controller.onPerspectiveChange = onPerspectiveChange }
         DisposableEffect(camera, controller) {
+            camera?.takeRestoredState()?.let(controller::restoreCameraState)
             camera?.controller = controller
             onDispose { if (camera?.controller === controller) camera.controller = null }
         }
@@ -903,9 +906,24 @@ data class PlateViewOptions(
  * The View menu's commands to the camera of the [PlateView] it is given to:
  * a view of the camera, "Default View", and the canvas's zoom button.
  */
-class PlateViewCamera {
+class PlateViewCamera internal constructor(
+    /** The camera's view the page kept through the activity's recreation, until the view takes it. */
+    private var restoredState: DoubleArray?,
+) {
+    constructor() : this(null)
+
     /** The view's controller while it is shown. */
     internal var controller: PlateViewController? by mutableStateOf(null)
+
+    internal fun takeRestoredState(): DoubleArray? = restoredState.also { restoredState = null }
+
+    internal companion object {
+        /** The camera's view, kept through the page's saved state as a desktop window keeps it while it is resized. */
+        val Saver = Saver<PlateViewCamera, DoubleArray>(
+            save = { it.controller?.savedCameraState() ?: it.restoredState },
+            restore = { PlateViewCamera(it) },
+        )
+    }
 
     /** Where the page placed the 3D navigator ([PlateNavigator]); null while it shows none. */
     internal var navigatorSlot: NavigatorSlot? by mutableStateOf(null)
@@ -996,9 +1014,9 @@ data class CameraEye(val position: Vector3, val forward: Vector3, val perspectiv
 /** A point of a surface, with the surface's normal there, in world coordinates. */
 data class SurfaceHit(val position: Vector3, val normal: Vector3)
 
-/** A [PlateViewCamera] for as long as the page is shown. */
+/** A [PlateViewCamera] for as long as the page is shown, its view kept when a turn or a resized window builds the page anew. */
 @Composable
-fun rememberPlateViewCamera(): PlateViewCamera = remember { PlateViewCamera() }
+fun rememberPlateViewCamera(): PlateViewCamera = rememberSaveable(saver = PlateViewCamera.Saver) { PlateViewCamera() }
 
 /** Camera::select_view()'s auto_type(): the side views are orthographic, the others in perspective. */
 private val CameraView.prefersPerspective: Boolean
@@ -1524,6 +1542,9 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     /** Camera::requires_zoom_to_bed (false) or requires_zoom_to_plate of every plate (true) of a project started or opened; null for none. */
     private var projectViewOfPlates: Boolean? = null
 
+    /** The camera holds the view its page kept through the activity's recreation, which the bed keeps rather than being framed anew. */
+    private var restoredView = false
+
     /** _render_assemble_info(): the size of the assembly view's selection, told as it changes. */
     var onAssemblySelection: (Vector3?) -> Unit = {}
     var onPlaceInAssembly: (Int, Transform3, Manipulation) -> Unit = { _, _, _ -> }
@@ -1683,6 +1704,21 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         textDrag = view
         if (drag is TextDrag || drag is TextRotateDrag) drag = null
         invalidate()
+    }
+
+    /** The 3D view's camera, which the page keeps through the activity's recreation; null before it framed the bed. */
+    fun savedCameraState(): DoubleArray? = when {
+        framedBed == null && !restoredView -> null
+        assembly != null -> plateCameraView?.let { OrcaCamera().apply { loadView(it) }.saveState() }
+        else -> camera.saveState()
+    }
+
+    /** The camera's view the page kept through the activity's recreation (savedCameraState()). */
+    fun restoreCameraState(state: DoubleArray) {
+        if (camera.restoreState(state)) {
+            restoredView = true
+            invalidate()
+        }
     }
 
     /** Where the camera stands and looks, for the text tool's "Set text to face camera". */
@@ -4205,8 +4241,12 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             }
         }
         if (bed != null && framedBed !== bed && camera.viewportWidth > 1 && assembly == null) {
-            resetView()
-            return
+            if (!restoredView) {
+                resetView()
+                return
+            }
+            restoredView = false
+            framedBed = bed
         }
         // Camera::requires_zoom_to_volumes: the assembly view first shows its volumes framed.
         if (zoomToVolumes && assembly != null && objectsInAssembly && camera.viewportWidth > 1) {

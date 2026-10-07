@@ -116,6 +116,23 @@ internal class OrcaCamera {
 
     fun view() = View(target, zoom, sceneBox, viewMatrix, viewRotation, zenit)
 
+    /** The camera's view as numbers, which a page keeps through the activity's recreation (a turn, a resized window). */
+    fun saveState(): DoubleArray =
+        doubleArrayOf(target.x, target.y, target.z, zoom, distance, zenit, viewRotation.w, viewRotation.x, viewRotation.y, viewRotation.z) +
+            viewMatrix.elements()
+
+    /** The view [saveState] gave; false for numbers it did not give. */
+    fun restoreState(state: DoubleArray): Boolean {
+        if (state.size != SAVED_STATE_SIZE) return false
+        target = Vec3(state[0], state[1], state[2])
+        zoom = state[3]
+        distance = state[4]
+        zenit = state[5]
+        viewRotation = Quaternion(state[6], state[7], state[8], state[9])
+        viewMatrix = Affine3(state.copyOfRange(10, SAVED_STATE_SIZE))
+        return true
+    }
+
     /** Camera::load_camera_view() */
     fun loadView(view: View) {
         target = view.target
@@ -375,6 +392,7 @@ internal class OrcaCamera {
         private const val FRUSTUM_MIN_NEAR_Z = 100.0
         private const val FRUSTUM_Z_MARGIN = 10.0
         private const val EPSILON = 1e-4
+        private const val SAVED_STATE_SIZE = 26
 
         /** Camera::apply_projection() for the orthographic type, column-major. */
         private fun ortho(left: Double, right: Double, bottom: Double, top: Double, near: Double, far: Double): DoubleArray {
