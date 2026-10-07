@@ -51,6 +51,8 @@ internal class LayerGcodeUi(
     val rules: LayerGcodeRules,
     val filamentColors: List<Color>,
     val actions: LayerGcodeActions,
+    /** IMSlider::set_menu_enable(): the slider's menu opens. */
+    val menuEnabled: Boolean = true,
 )
 
 /**
@@ -158,7 +160,7 @@ internal fun ToolpathsControls(
                 },
                 marks = marks,
                 bands = bands,
-                onLayerMenu = layerGcodes?.let { { layer, lower -> menuLayer = layer; menuLower = lower } },
+                onLayerMenu = layerGcodes?.takeIf { it.menuEnabled }?.let { { layer, lower -> menuLayer = layer; menuLower = lower } },
                 layerMenuDescription = stringResource(R.string.layer_codes),
                 contentDescription = stringResource(R.string.layer_slider),
                 stepUpDescription = stringResource(R.string.layer_up),

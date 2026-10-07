@@ -118,6 +118,11 @@ bool write_slice_info(Slic3r::Print& print, Slic3r::GCodeProcessorResult& result
 
     nlohmann::json first_layer;
     first_layer_of(print, result).to_json(first_layer);
+    // PlateBBoxData::from_json() reads the objects' boxes, which to_json()
+    // leaves out for a plate of none, as a G-code file's is.
+    if (!first_layer.contains("bbox_objects")) {
+        first_layer["bbox_objects"] = nlohmann::json::array();
+    }
     j["first_layer"] = first_layer;
 
     std::ofstream out(path, std::ios::binary | std::ios::trunc);

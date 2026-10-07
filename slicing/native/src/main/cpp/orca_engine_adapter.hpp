@@ -3965,4 +3965,46 @@ AppConfigValues recent_projects();
 // AppConfig::set_recent_projects() and save(): what the list holds afterwards.
 AppConfigValues set_recent_projects(const std::vector<std::string>& projects);
 
+// What a G-code file holds for the preview, as GCodeProcessor::process_file()
+// reads it (gcode_files.cpp).
+struct GcodeLoad {
+    SliceStatus status{SliceStatus::slicing_failed};
+    std::string message;
+    // get_gcode_layers_zs() is not empty: the file holds G-code the preview shows.
+    bool valid{false};
+    std::int64_t layer_count{0};
+    std::int64_t estimated_print_time_seconds{0};
+    std::int64_t filament_micrometers{0};
+    double total_cost{0.0};
+    // What the G-code used of each filament it prints with.
+    std::vector<FilamentUsage> filaments;
+    bool toolpaths_written{false};
+    // What the plate keeps of the G-code for its 3MF files (slice_info.hpp),
+    // which a printer that takes a .gcode.3mf is sent with.
+    bool slice_info_written{false};
+    // GCodeProcessorResult::settings_ids: the presets the G-code's own
+    // configuration names, which the legend's "Settings" lists.
+    std::string printer_settings;
+    std::string print_settings;
+    std::vector<std::string> filament_settings;
+    // The G-code's plate type became the project's (curr_bed_type).
+    bool bed_type_changed{false};
+};
+
+// Plater::load_gcode() and Print::export_gcode_from_previous_file(): the G-code
+// file at gcode_path processed with its moves standing on the plate at
+// plate_index of plate_count (GCodeProcessor::set_xy_offset), and written as
+// the preview's toolpaths into toolpaths_path, with the plate's filament
+// colours and the cost the G-code's densities and costs give, and its slice
+// info into slice_info_path. With apply_bed_type the G-code's plate type
+// becomes the project's, as load_gcode() sets it.
+GcodeLoad load_gcode(
+    const std::string& gcode_path,
+    const std::string& toolpaths_path,
+    const std::string& slice_info_path,
+    int plate_index,
+    int plate_count,
+    bool apply_bed_type
+);
+
 }  // namespace orcinus::orca

@@ -587,7 +587,14 @@ const Slic3r::DynamicPrintConfig& placing_config(const Archive3mf& archive, cons
     return archive.load_config ? archive.config : current;
 }
 
-void apply_3mf(Archive3mf& archive, const std::string& file_name, SettingsDialogs& dialogs, ImportedModels& result)
+bool has_plate_gcode(const Archive3mf& archive)
+{
+    return std::any_of(archive.plate_data.begin(), archive.plate_data.end(), [](const Slic3r::PlateData* data) {
+        return !data->gcode_file.empty() && boost::filesystem::exists(data->gcode_file);
+    });
+}
+
+void apply_3mf(Archive3mf& archive, const std::string& file_name, SettingsDialogs& dialogs, ImportedModels& result, const std::string& output_prefix)
 {
     Slic3r::PresetBundle& bundle = *engine().bundle;
     // Plater::priv::reset() of Plater::load_project(): the presets the project
@@ -737,6 +744,20 @@ void apply_3mf(Archive3mf& archive, const std::string& file_name, SettingsDialog
         if (codes != archive.custom_gcodes.end()) {
             for (const Slic3r::CustomGCode::Item& item : codes->second.gcodes) {
                 plate.layer_gcodes.push_back({item.print_z, static_cast<LayerGcodeType>(item.type), item.extruder, item.color, item.extra});
+            }
+        }
+        // Plater::priv::load_files(): a project of no objects loads its plates'
+        // G-code (PartPlateList::load_gcode_files()), each plate's from the
+        // file the 3MF reader extracted (PartPlate::load_gcode_from_file()).
+        if (result.objects.empty() && !output_prefix.empty() && index < archive.plate_data.size()) {
+            const std::string& gcode_file = archive.plate_data[index]->gcode_file;
+            boost::system::error_code error;
+            if (!gcode_file.empty() && boost::filesystem::exists(gcode_file, error)) {
+                const std::string kept = output_prefix + "-plate-" + std::to_string(index + 1) + ".gcode";
+                boost::filesystem::copy_file(gcode_file, kept, boost::filesystem::copy_options::overwrite_existing, error);
+                if (!error) {
+                    plate.gcode_path = kept;
+                }
             }
         }
     }

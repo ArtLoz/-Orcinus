@@ -281,14 +281,14 @@ class PresetSettingsTabs(
                 }
                 // What the object or the plate overrides after the request.
                 .withModelSettings(kind, outcome.settings.modelSettings)
-                .copy(result = state.result.takeUnless { changesSlicing(before, outcome.settings) })
+                .copy(result = state.result.takeUnless { !state.keepsGcode && changesSlicing(before, outcome.settings) })
         }
         val previous = before
         if (previous == null || previous.preset != outcome.settings.preset || previous.label != outcome.settings.label) {
             val presets = presetManager.presets() as? PresetsOutcome.Success ?: return
             repository.update { state ->
                 state.copy(presets = presets.presets).let { updated ->
-                    updated.copy(result = state.result.takeIf { updated.profiles == state.profiles })
+                    updated.copy(result = state.result.takeIf { state.keepsGcode || updated.profiles == state.profiles })
                 }
             }
         }

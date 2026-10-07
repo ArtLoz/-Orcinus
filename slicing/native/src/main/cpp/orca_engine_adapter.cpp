@@ -5069,9 +5069,9 @@ ImportedModels import_models(
             }
         }
         dialogs.set_scope({});
-        // load_files() loaded no object of any file. A project of no objects
-        // loads its settings, which the G-code viewer of stage J5 takes up.
-        if (total_model_count == 0 && !is_project_file) {
+        // load_files() loaded no object of any file, and the file is no project
+        // whose plates carry G-code (m_exported_file, load_gcode_files()).
+        if (total_model_count == 0 && !(is_project_file && detail::has_plate_gcode(archive))) {
             dialogs.inform("no_geometry", {detail::ui_text("The file does not contain any geometry data.")}, {detail::ui_text("Warning")});
         }
 
@@ -5163,7 +5163,7 @@ ImportedModels import_models(
         }
         // Every question is answered: what the file brings into the presets.
         if (one_by_one && boost::algorithm::iends_with(source_paths.front(), ".3mf")) {
-            detail::apply_3mf(archive, fs::path(source_paths.front()).filename().string(), dialogs, result);
+            detail::apply_3mf(archive, fs::path(source_paths.front()).filename().string(), dialogs, result, output_prefix);
         }
         if (result.project) {
             result.project_info = output_prefix + "-project";
@@ -7643,6 +7643,21 @@ void keep_current_plate(Slic3r::Model& model, const Slic3r::DynamicPrintConfig& 
             model.delete_object(index);
         }
     }
+}
+
+bool write_toolpaths(
+    const Slic3r::GCodeProcessorResult& gcode_result,
+    const Slic3r::Print& print,
+    const Slic3r::DynamicPrintConfig& config,
+    const std::string& path
+)
+{
+    return orcinus::orca::write_toolpaths(gcode_result, print, config, path);
+}
+
+std::vector<FilamentUsage> filament_usage(const Slic3r::GCodeProcessorResult& gcode_result, const std::vector<int>& filaments, const std::size_t colors)
+{
+    return orcinus::orca::filament_usage(gcode_result, filaments, colors);
 }
 
 }  // namespace detail

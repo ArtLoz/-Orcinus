@@ -47,6 +47,7 @@ import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.FlushVolumesOutcome
 import app.orcinus.shadow.core.model.FontFace
+import app.orcinus.shadow.core.model.GcodeLoadOutcome
 import app.orcinus.shadow.core.model.GcodePlaceholderInfo
 import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
 import app.orcinus.shadow.core.model.LayerEditingOutcome
@@ -74,6 +75,7 @@ import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.OrcaText
+import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PaintStroke
@@ -300,6 +302,17 @@ class RemoteSlicerEngine(
         } catch (_: RemoteException) {
             // The engine process is gone, and the load with it.
         }
+    }
+
+    override suspend fun loadGcode(
+        gcode: OutputPath,
+        toolpaths: ScenePath,
+        sliceInfo: ScenePath?,
+        plateIndex: Int,
+        plateCount: Int,
+        applyBedType: Boolean,
+    ): GcodeLoadOutcome = remote(GcodeLoadOutcome::Failure) {
+        loadGcode(gcode.value, toolpaths.value, sliceInfo?.value, plateIndex, plateCount, applyBedType).toGcodeLoadOutcome()
     }
 
     override suspend fun edit(

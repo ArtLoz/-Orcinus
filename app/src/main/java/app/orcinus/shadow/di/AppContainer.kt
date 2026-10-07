@@ -101,6 +101,7 @@ import app.orcinus.shadow.domain.plate.GetSetupPrintersUseCase
 import app.orcinus.shadow.domain.plate.ImportConfigUseCase
 import app.orcinus.shadow.domain.plate.InvalidateCutInfoUseCase
 import app.orcinus.shadow.domain.plate.ListHostPrintersUseCase
+import app.orcinus.shadow.domain.plate.LoadGcodeUseCase
 import app.orcinus.shadow.domain.plate.LoadObjectVolumesUseCase
 import app.orcinus.shadow.domain.plate.LockPlateUseCase
 import app.orcinus.shadow.domain.plate.MeasureUseCase
@@ -425,6 +426,20 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     )
 
     private val editPlateObject = EditPlateObjectUseCase(engine, sceneFiles, plateRepository, applicationScope)
+
+    // Plater::load_gcode() and load_gcode_files(): G-code files and exported files the preview shows on their own.
+    private val loadGcode = LoadGcodeUseCase(
+        importModel = ImportModelUseCase(modelFiles),
+        inspector = engine,
+        presetManager = engine,
+        platePresets = platePresets,
+        outputs = AppGcodeOutputs(applicationContext),
+        sceneFiles = sceneFiles,
+        repository = plateRepository,
+        applicationScope = applicationScope,
+        newProject = { previewOnly -> projectLifecycle.startNewProject(previewOnly = previewOnly) },
+        keepFile = { from, to -> withContext(Dispatchers.IO) { runCatching { File(from.value).copyTo(File(to.value), overwrite = true) }.isSuccess } },
+    )
     val addModelToPlate = AddModelToPlateUseCase(
         importModel = ImportModelUseCase(modelFiles),
         inspector = engine,
@@ -440,10 +455,18 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         objColorPrompt = objColorPrompt,
         editPlateObject = editPlateObject,
         recentProjects = recentProjects,
+        loadGcode = loadGcode,
     )
 
     /** Files another app hands over, and "Import Zip Archive". */
-    val openFiles = OpenFilesUseCase(AppDocumentExport(applicationContext), AppArchiveFiles(applicationContext), addModelToPlate, plateRepository, applicationScope)
+    val openFiles = OpenFilesUseCase(
+        AppDocumentExport(applicationContext),
+        AppArchiveFiles(applicationContext),
+        addModelToPlate,
+        plateRepository,
+        applicationScope,
+        loadGcode = loadGcode,
+    )
     private val addPrimitive = AddPrimitiveUseCase(engine, sceneFiles, plateRepository, applicationScope)
     private val addCalibrationCube = AddCalibrationCubeToPlateUseCase(inspectModel, sceneFiles, plateRepository, applicationScope)
     private val cancelPlateSlicing = CancelPlateSlicingUseCase(CancelSliceUseCase(engine), plateRepository, applicationScope)

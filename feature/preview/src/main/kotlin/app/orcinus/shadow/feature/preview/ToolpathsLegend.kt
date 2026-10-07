@@ -33,6 +33,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaSheetHandle
 import app.orcinus.shadow.core.designsystem.component.OrcaSummaryItem
 import app.orcinus.shadow.core.designsystem.component.OrcaSummaryRow
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
+import app.orcinus.shadow.core.model.GcodeSettingsIds
 import app.orcinus.shadow.core.model.ImperialUnits
 import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.LayerGcodeType
@@ -90,6 +91,8 @@ internal fun ToolpathsSheet(
     /** The plate's codes on the layers, which the "Custom G-code" section lists. */
     layerGcodes: List<LayerGcode> = emptyList(),
     onTimeModeChange: (ToolpathsTimeMode) -> Unit = {},
+    /** The presets a G-code file the preview shows on its own names, which the "Settings" section lists; null for none. */
+    gcodeSettings: GcodeSettingsIds? = null,
 ) {
     // render_legend() takes the estimated time of the time mode, or the viewer's own.
     val modeTime = statistics.timeIn(view.timeMode)
@@ -138,6 +141,9 @@ internal fun ToolpathsSheet(
             ToolpathsViewType.ColorPrint -> ColorPrint(view, statistics, imperial)
             ToolpathsViewType.Tool -> Unit
             else -> ColorRange(view, onOptionVisibleChange)
+        }
+        if (gcodeSettings != null && (view.viewType == ToolpathsViewType.FeatureType || view.viewType == ToolpathsViewType.Tool)) {
+            Settings(view, gcodeSettings)
         }
         CustomGcodes(view, layerGcodes)
         Estimation(view, statistics, imperial, onTimeModeChange)
@@ -352,6 +358,28 @@ private fun OptionItem(option: OptionLegend, name: String, onOptionVisibleChange
  * kind, its layer (find_close_layer_idx(), from 1) and the time the print
  * takes before that layer in the time mode shown.
  */
+/**
+ * render_legend()'s settings section, which shows for a G-code file the
+ * preview shows on its own (m_only_gcode_in_preview): the printer, process and
+ * filament presets the G-code names, each filament of the used extruders.
+ */
+@Composable
+private fun Settings(view: ToolpathsView, settings: GcodeSettingsIds) {
+    val hasFilamentSettings = settings.filaments.isNotEmpty() && settings.filaments.all { it.isNotEmpty() }
+    if (settings.print.isEmpty() && settings.printer.isEmpty() && !hasFilamentSettings) return
+    OrcaLegendSection(orcaString("Settings")) {
+        if (settings.printer.isNotEmpty()) OrcaLegendValue(orcaString("Printer") + ":", settings.printer)
+        if (settings.print.isNotEmpty()) OrcaLegendValue(orcaString("Print settings") + ":", settings.print)
+        view.usedExtruders.forEach { extruder ->
+            val filament = settings.filaments.getOrNull(extruder).orEmpty()
+            if (filament.isNotEmpty()) {
+                val label = orcaString("Filament") + if (view.usedExtruders.size == 1) ":" else " ${extruder + 1}"
+                OrcaLegendValue(label, filament)
+            }
+        }
+    }
+}
+
 @Composable
 private fun CustomGcodes(view: ToolpathsView, codes: List<LayerGcode>) {
     if (codes.isEmpty()) return

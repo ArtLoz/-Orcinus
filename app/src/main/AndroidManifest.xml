@@ -38,7 +38,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- The files Plater::load_files() takes: models, projects and ZIP archives. -->
+            <!-- The files Plater::load_files() takes: models, projects, ZIP archives and G-code. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -55,6 +55,8 @@
                 <data android:mimeType="application/x-amf" />
                 <data android:mimeType="image/svg+xml" />
                 <data android:mimeType="application/zip" />
+                <data android:mimeType="text/x.gcode" />
+                <data android:mimeType="text/x-gcode" />
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
             <intent-filter>
@@ -73,6 +75,8 @@
                 <data android:mimeType="application/x-amf" />
                 <data android:mimeType="image/svg+xml" />
                 <data android:mimeType="application/zip" />
+                <data android:mimeType="text/x.gcode" />
+                <data android:mimeType="text/x-gcode" />
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
             <intent-filter>
@@ -91,6 +95,8 @@
                 <data android:mimeType="application/x-amf" />
                 <data android:mimeType="image/svg+xml" />
                 <data android:mimeType="application/zip" />
+                <data android:mimeType="text/x.gcode" />
+                <data android:mimeType="text/x-gcode" />
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>

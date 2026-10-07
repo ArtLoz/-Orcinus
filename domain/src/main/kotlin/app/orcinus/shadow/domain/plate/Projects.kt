@@ -19,6 +19,7 @@ import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PlateHistory
 import app.orcinus.shadow.core.model.PlateProject
+import app.orcinus.shadow.core.model.PreviewOnly
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.PresetChangesAnswer
 import app.orcinus.shadow.core.model.PresetsOutcome
@@ -329,9 +330,11 @@ class ProjectLifecycleUseCase(
 
     /**
      * Plater::new_project() with the project's [name], or "Untitled" for none;
-     * true once the new project stands, false when the user stayed.
+     * true once the new project stands, false when the user stayed. It leaves
+     * the preview-only modes (m_only_gcode, m_exported_file), unless
+     * Plater::load_gcode() starts it for [previewOnly].
      */
-    suspend fun startNewProject(name: String? = null): Boolean {
+    suspend fun startNewProject(name: String? = null, previewOnly: PreviewOnly? = null): Boolean {
         val state = repository.state.value
         if (state.busy || state.projectPrompt != null || state.profiles == null) return false
         if (!confirm(newProject = true)) return false
@@ -360,6 +363,7 @@ class ProjectLifecycleUseCase(
                 projectResets = current.projectResets + 1,
                 result = null,
                 problem = null,
+                previewOnly = previewOnly,
                 project = PlateProject(
                     name = name,
                     baseline = ProjectContent(plates = listOf(PartPlate(settings = kept))),

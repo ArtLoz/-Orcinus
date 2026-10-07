@@ -1195,6 +1195,26 @@ internal object NativePresetChangeAction {
     const val DISCARD = 2L
 }
 
+/** Constructed by the native bridge; see GcodeLoad in orca_engine_adapter.hpp. */
+internal class NativeGcodeLoad(
+    @JvmField val status: Long,
+    @JvmField val message: String,
+    @JvmField val valid: Boolean,
+    @JvmField val layerCount: Long,
+    @JvmField val estimatedPrintTimeSeconds: Long,
+    @JvmField val filamentMicrometers: Long,
+    @JvmField val totalCost: Double,
+    /** The filaments the G-code prints with, from 1, with eight amounts each in [filamentAmounts], as NativeSliceResult's. */
+    @JvmField val filaments: IntArray,
+    @JvmField val filamentAmounts: DoubleArray,
+    @JvmField val toolpathsWritten: Boolean,
+    @JvmField val sliceInfoWritten: Boolean,
+    @JvmField val printerSettings: String,
+    @JvmField val printSettings: String,
+    @JvmField val filamentSettings: Array<String>,
+    @JvmField val bedTypeChanged: Boolean,
+)
+
 /** VolumeState in orca_engine_adapter.hpp. */
 internal object NativeVolumeState {
     const val INSIDE = 0L
@@ -1248,6 +1268,21 @@ internal object NativeBindings {
         outputPlateName: String,
         outputModelName: String,
     ): NativeSliceResult
+
+    /**
+     * load_gcode(): the G-code file processed with its moves on the plate at
+     * [plateIndex] of [plateCount], its toolpaths written to [toolpathsPath]
+     * and its slice info to [sliceInfoPath] (null writes none);
+     * [applyBedType] makes its plate type the project's.
+     */
+    external fun loadGcode(
+        gcodePath: String,
+        toolpathsPath: String,
+        sliceInfoPath: String?,
+        plateIndex: Int,
+        plateCount: Int,
+        applyBedType: Boolean,
+    ): NativeGcodeLoad
 
     /** prepare_calibration(): the calibration's model set up on the empty plate, and the presets changed. */
     external fun prepareCalibration(

@@ -182,6 +182,9 @@ class AppShellViewModel(
     /** The questions of New Project and Open Project (Plater::close_with_confirm and the presets' check). */
     fun answerSaveChanges(save: Boolean?, remember: Boolean) = projectLifecycle.answerSaveChanges(save, remember)
 
+    /** MainFrame::preview_only_hint()'s Yes: Plater::new_project(). */
+    fun newProject() = projectLifecycle.newProject()
+
     fun saveProjectTo(document: ExternalDocumentReference?) = projectLifecycle.saveTo(document)
 
     fun answerPresetChanges(answer: PresetChangesAnswer?, remember: Boolean) = projectLifecycle.answerPresetChanges(answer, remember)
@@ -478,12 +481,35 @@ private fun Workspace(
 
     // Plater::new_project() and load_project() select the Prepare tab: the
     // plate was reset (Plater::priv::reset()) for a new or an opened project.
+    // load_gcode() and an exported file (m_exported_file) select the Preview.
     var projectResets by remember { mutableIntStateOf(plate.projectResets) }
     LaunchedEffect(plate.projectResets) {
         if (plate.projectResets != projectResets) {
             projectResets = plate.projectResets
-            showTab(PrepareNavKey)
+            showTab(if (plate.previewOnly != null) PreviewNavKey else PrepareNavKey)
         }
+    }
+
+    // MainFrame::preview_only_hint(): the Prepare tab of a G-code file or an
+    // exported file asks first whether they close for a new project.
+    var previewOnlyHint by rememberSaveable { mutableStateOf(false) }
+    val previewOnly = plate.previewOnly
+    if (previewOnlyHint && previewOnly != null) {
+        SettingsQuestionDialog(
+            SettingsDialog(
+                id = "preview_only_hint",
+                icon = DialogIcon.WARNING,
+                title = listOf(OrcaText("Warning")),
+                text = listOf(OrcaText("%s", listOf(previewOnly.fileName + " ")), OrcaText("will be closed before creating a new model. Do you want to continue?")),
+                question = true,
+                yes = OrcaText("Yes"),
+                no = OrcaText("No"),
+            ),
+            onAnswer = { yes ->
+                previewOnlyHint = false
+                if (yes) shell.newProject()
+            },
+        )
     }
 
     // The files another app handed over load on the Prepare tab once a printer
@@ -523,7 +549,14 @@ private fun Workspace(
             OrcaTabBar(
                 tabs = tabs,
                 selectedIndex = destinations.indexOf(backStack.lastOrNull()).coerceAtLeast(0),
-                onSelect = { showTab(destinations[it]) },
+                onSelect = { index ->
+                    val destination = destinations[index]
+                    if (destination == PrepareNavKey && plate.previewOnly != null && backStack.lastOrNull() != PrepareNavKey) {
+                        previewOnlyHint = true
+                    } else {
+                        showTab(destination)
+                    }
+                },
                 fillWidth = layout == OrcaWindowLayout.Compact,
             ) {
                 SliceButton(

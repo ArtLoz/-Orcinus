@@ -17,6 +17,7 @@ add_library(orca_engine_adapter STATIC
     layer_editing.cpp
     engine_context.cpp
     flush_volumes.cpp
+    gcode_files.cpp
     nanosvg.cpp
     obj_colors.cpp
     orca_engine_adapter.cpp

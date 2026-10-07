@@ -33,6 +33,8 @@ class OpenFilesUseCase(
     private val addModelToPlate: AddModelToPlateUseCase,
     private val repository: PlateRepository,
     private val applicationScope: CoroutineScope,
+    /** Plater::load_gcode() of a G-code file handed over alone. */
+    private val loadGcode: LoadGcodeUseCase? = null,
 ) {
     private val previewState = MutableStateFlow<ArchivePreview?>(null)
 
@@ -47,9 +49,11 @@ class OpenFilesUseCase(
     /**
      * The model, project and archive files among [references], by their
      * names, one after another as the desktop app sorts them; a G-code file
-     * goes alone. The archives are previewed first and their files picked,
-     * then the other files load as Plater::add_file() loads files picked at
-     * once, without joining the recent files.
+     * goes alone, and opens on its own (Plater::load_gcode()). The archives
+     * are previewed first and their files picked, then the other files load
+     * as Plater::add_file() loads files picked at once, without joining the
+     * recent files. Models do not join a G-code file or an exported file the
+     * preview shows; a 3MF file opens over it.
      */
     fun open(references: List<ExternalDocumentReference>) {
         if (references.isEmpty()) return
@@ -61,8 +65,17 @@ class OpenFilesUseCase(
                 when {
                     // Likely no supported files.
                     normal.isEmpty() && gcode.isEmpty() -> Unit
-                    normal.isEmpty() -> if (gcode.size > 1) inform(ONLY_ONE_GCODE)
+                    normal.isEmpty() -> if (gcode.size > 1) {
+                        inform(ONLY_ONE_GCODE)
+                    } else if (loadGcode != null) {
+                        awaitIdle()
+                        loadGcode.load(gcode.single().first)
+                        awaitIdle()
+                    }
                     gcode.isNotEmpty() -> inform(GCODE_WITH_MODELS)
+                    // LoadFilesType::SingleOther and MultipleOther in m_only_gcode or m_exported_file.
+                    repository.state.value.previewOnly != null && normal.none { it.second.endsWith(THREE_MF, ignoreCase = true) } ->
+                        notice(AddModelToPlateUseCase.CANNOT_ADD_MODELS)
                     else -> {
                         // The lambda handle_zips(): each archive is previewed, and leaves the files.
                         val (zips, files) = normal.partition { it.second.endsWith(ZIP, ignoreCase = true) }
@@ -152,6 +165,7 @@ class OpenFilesUseCase(
         val ARCHIVE_FILES = Regex(".*[.](stl|obj|amf|3mf|step|stp)", RegexOption.IGNORE_CASE)
 
         const val ZIP = ".zip"
+        const val THREE_MF = ".3mf"
         const val GCODE_LOADING_ID = "gcode_loading"
         const val ARCHIVE_ERROR_ID = "archive_error"
         val GCODE_LOADING = OrcaText("G-code loading")

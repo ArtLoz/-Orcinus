@@ -90,6 +90,8 @@ import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetSave
 import app.orcinus.shadow.core.model.PresetTransfer
 import app.orcinus.shadow.core.model.PresetsOutcome
+import app.orcinus.shadow.core.model.PreviewOnly
+import app.orcinus.shadow.core.model.PreviewOnlyKind
 import app.orcinus.shadow.core.model.PrintHostJob
 import app.orcinus.shadow.core.model.PrintHostTestOutcome
 import app.orcinus.shadow.core.model.PrintHostUploadOutcome
@@ -302,8 +304,8 @@ class PlatePresets(
             // Plater::on_config_change() of filament_colour: the G-code export
             // writes the colours (Print's steps_gcode).
             colorsChanged = state.presets.let { it != null && it.filamentColors != presets.filamentColors }
-            updated.copy(result = state.result.takeIf { updated.profiles == before && !colorsChanged })
-                .let { if (bedTypeChanged) it.withoutResultsOnProjectBedType() else it }
+            updated.copy(result = state.result.takeIf { state.keepsGcode || updated.profiles == before && !colorsChanged })
+                .let { if (bedTypeChanged && !state.keepsGcode) it.withoutResultsOnProjectBedType() else it }
                 // Sidebar::reset_bed_type_combox_choices() for another printer:
                 // PartPlateList::check_all_plate_local_bed_type().
                 .let { if (before != null && before.printer != presets.selection.printer) it.withSupportedBedTypes(presets.bedTypes) else it }
@@ -839,6 +841,8 @@ class AddModelToPlateUseCase(
     private val editPlateObject: EditPlateObjectUseCase,
     private val recentProjects: RecentProjects? = null,
     private val objColorPrompt: ObjColorPrompt? = null,
+    /** Plater::load_gcode() of a G-code file Open Project picked, and the G-code of an exported file's plates. */
+    private val loadGcode: LoadGcodeUseCase? = null,
 ) {
     operator fun invoke(reference: ExternalDocumentReference) = invoke(listOf(reference))
 
@@ -848,7 +852,13 @@ class AddModelToPlateUseCase(
      * model to the recent files and names no project.
      */
     operator fun invoke(references: List<ExternalDocumentReference>, addFile: Boolean = true) {
-        if (references.isEmpty() || !start()) return
+        if (references.isEmpty()) return
+        // MainFrame::can_add_models(): no model joins a G-code file or an exported file the preview shows.
+        if (addFile && repository.state.value.previewOnly != null) {
+            repository.update { it.copy(plateNotices = it.plateNotices + CANNOT_ADD_MODELS) }
+            return
+        }
+        if (!start()) return
         applicationScope.launch {
             val picked = mutableListOf<Pair<ExternalDocumentReference, ImportedModelFile>>()
             for ((reference, imported) in references.zip(importModel(references))) {
@@ -944,8 +954,13 @@ class AddModelToPlateUseCase(
         applicationScope.launch {
             when (val imported = importModel(reference)) {
                 is ModelImportOutcome.Failure -> finish(ModelLoadOutcome.Failure(imported.message))
-                is ModelImportOutcome.Success ->
+                is ModelImportOutcome.Success -> if (loadGcode != null && GCODE_FILES.matches(imported.model.displayName)) {
+                    // The file dialog takes any file: a G-code file opens as Plater::load_files() opens a dropped one.
+                    repository.update { it.copy(importing = false) }
+                    loadGcode.load(reference, imported.model)
+                } else {
                     loadProject(imported.model.path, ImportBatch(document = reference, displayName = imported.model.displayName))
+                }
             }
         }
     }
@@ -1179,10 +1194,12 @@ class AddModelToPlateUseCase(
         var done = false
         var before: SlicingProfileSelection? = null
         var split: ScenePath? = null
+        var exportedPlates: List<OutputPath?>? = null
         repository.update { state ->
             next = null
             done = false
             split = null
+            exportedPlates = null
             before = state.profiles
             val notices = outcome.notices.filterNot { it in shown }
             val informed = state.copy(
@@ -1210,8 +1227,14 @@ class AddModelToPlateUseCase(
                         val plates = project.plates.map { plate ->
                             PartPlate(name = plate.name, locked = plate.locked, settings = plate.settings, layerGcodes = plate.layerGcodes)
                         }.ifEmpty { listOf(PartPlate()) }
+                        // load_files(): a project of no objects whose plates carry their G-code
+                        // is the exported file (m_exported_file), shown in the Preview from its
+                        // first such plate; the plates' G-code is read once it stands.
+                        val exported = added.isEmpty() && loadGcode != null && project.plates.any { it.gcode != null }
+                        if (exported) exportedPlates = project.plates.map { it.gcode }
+                        val first = if (exported) project.plates.indexOfFirst { it.gcode != null } else 0
                         informed.copy(
-                            importing = batch.rest.isNotEmpty(),
+                            importing = batch.rest.isNotEmpty() || exported,
                             objects = added,
                             // load_files() selects what it added only without load_config.
                             selectedInstances = emptySet(),
@@ -1219,11 +1242,16 @@ class AddModelToPlateUseCase(
                             selectedRange = null,
                             simplifyTarget = null,
                             plates = plates,
-                            currentPlate = 0,
-                            plateSettings = plates.first().settings,
-                            layerGcodes = plates.first().layerGcodes,
+                            currentPlate = first,
+                            plateSettings = plates[first].settings,
+                            layerGcodes = plates[first].layerGcodes,
                             // Plater::load_project()
                             paPattern = null,
+                            previewOnly = if (exported) {
+                                PreviewOnly(PreviewOnlyKind.EXPORTED_FILE, batch.displayName.orEmpty(), batch.document, project.plates.count { it.gcode != null })
+                            } else {
+                                null
+                            },
                             history = PlateHistory(),
                             // Plater::priv::reset()
                             projectResets = state.projectResets + 1,
@@ -1268,6 +1296,7 @@ class AddModelToPlateUseCase(
                             history = PlateHistory(),
                             projectResets = state.projectResets + 1,
                             result = null,
+                            previewOnly = null,
                             project = PlateProject(name = batch.displayName?.let(::projectNameOf), document = document),
                         ).let { loaded ->
                             val opened = loaded.projectBaseline()
@@ -1292,6 +1321,7 @@ class AddModelToPlateUseCase(
                             selectedPart = null,
                             selectedRange = null,
                             result = if (added.isEmpty()) state.result else null,
+                            previewOnly = if (added.isEmpty()) state.previewOnly else null,
                         )
                     }
                 }
@@ -1342,13 +1372,15 @@ class AddModelToPlateUseCase(
         }
         // set_project_filename() of a project that opened adds it to the recent files
         // (add_to_recent_projects()), as add_file() adds its models that loaded.
-        if (outcome is ModelLoadOutcome.Success && outcome.objects.isNotEmpty()) {
+        val exported = exportedPlates
+        if (outcome is ModelLoadOutcome.Success && (outcome.objects.isNotEmpty() || exported != null)) {
             if (batch.load == ModelLoad.PROJECT || batch.loadProject) {
                 batch.document?.let { recentProjects?.add(listOf(it)) }
             } else {
                 files?.recentModels?.let { recentProjects?.add(it) }
             }
         }
+        if (exported != null) applicationScope.launch { loadGcode?.loadExportedPlates(exported, batch.displayName.orEmpty()) }
         val following = next
         if (following != null) {
             applicationScope.launch { load(batch.rest.first(), following, emptyMap(), emptyList()) }
@@ -1409,6 +1441,20 @@ class AddModelToPlateUseCase(
     companion object {
         /** pattern_bundle of Plater::priv: files that load one by one. */
         private val BUNDLE_FILES = Regex(".*[.](amf|amf[.]xml|zip[.]amf|3mf)", RegexOption.IGNORE_CASE)
+
+        /** pattern_gcode_drop of Plater::load_files(). */
+        private val GCODE_FILES = Regex(".*[.](gcode|g)", RegexOption.IGNORE_CASE)
+
+        /** Plater::load_files()'s show_info() in the preview-only modes. */
+        val CANNOT_ADD_MODELS = SettingsDialog(
+            id = "cannot_add_models",
+            icon = DialogIcon.INFO,
+            title = listOf(OrcaText("Add Models")),
+            text = listOf(OrcaText("Cannot add models when in preview mode!")),
+            question = false,
+            yes = null,
+            no = null,
+        )
 
         const val ONLY_ONE_WALL_TOP = "only_one_wall_top"
         const val MIN_WIDTH_TOP_SURFACE = "min_width_top_surface"

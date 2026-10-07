@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.BottomSheetScaffold
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -66,6 +67,7 @@ import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.FlashforgeSlotsOutcome
 import app.orcinus.shadow.core.model.PhysicalPrinter
+import app.orcinus.shadow.core.model.PreviewOnlyKind
 import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
 import app.orcinus.shadow.core.model.ProfileUpdate
 import app.orcinus.shadow.core.model.SentFilament
@@ -92,6 +94,7 @@ import app.orcinus.shadow.core.ui.displayName
 import app.orcinus.shadow.core.ui.filamentLength
 import app.orcinus.shadow.core.ui.network.rememberLocalNetworkAccess
 import app.orcinus.shadow.core.ui.orca.orcaString
+import app.orcinus.shadow.core.ui.orca.orcaText
 import app.orcinus.shadow.core.ui.plate.CanvasViewButtons
 import app.orcinus.shadow.core.ui.plate.DailyTipsPanel
 import app.orcinus.shadow.core.ui.plate.ExportFinishedNotification
@@ -429,6 +432,8 @@ internal fun PreviewScreen(
                     onGcodeWindowChange = { onSetCanvas(AppConfigKeys.SHOW_GCODE_WINDOW, it.toString()) },
                     layerGcodes = state.layerGcodes,
                     onTimeModeChange = shown::setTimeMode,
+                    // m_only_gcode_in_preview: the presets the G-code names.
+                    gcodeSettings = result?.settingsIds?.takeIf { state.previewOnly == PreviewOnlyKind.GCODE },
                 )
             }
         },
@@ -576,7 +581,7 @@ internal fun PreviewScreen(
                 }
             }
             // The preview's plate bar (GLCanvas3D::_render_imgui_select_plate_toolbar), once there are several.
-            if (state.plateOrigins.size > 1) {
+            if (state.plateBar) {
                 PlateStrip(
                     count = state.plateOrigins.size,
                     // No plate is picked while the statistics of all of them are.
@@ -595,6 +600,22 @@ internal fun PreviewScreen(
             val controls = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
             when {
                 allPlatesShown -> Unit
+
+                // Plater::load_gcode()'s wxBusyCursor while the G-code is read.
+                result == null && state.gcodeLoading != null -> Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .windowInsetsPadding(controls),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CircularProgressIndicator(color = OrcaTheme.colors.accent)
+                    Text(
+                        orcaText(OrcaText("Loading file: %s", listOf(state.gcodeLoading.orEmpty()))),
+                        color = OrcaTheme.colors.textSide,
+                        style = OrcaTheme.typography.body14,
+                    )
+                }
 
                 result == null -> Column(
                     modifier = Modifier
@@ -618,6 +639,8 @@ internal fun PreviewScreen(
                         rules = result.layerGcodeRules,
                         filamentColors = state.filamentColors.map { value -> parseFilamentColor(value)?.let { Color(it.red, it.green, it.blue, it.alpha) } ?: OrcaTheme.colors.accent },
                         actions = layerGcodeActions,
+                        // GCodeViewer::load_as_gcode(): no menu on the slider of a G-code file or an exported file.
+                        menuEnabled = state.previewOnly == null,
                     ),
                     // GCodeViewer::SequentialView::render(): the window while it is on and the move has a line.
                     gcodeWindow = gcodeLines?.takeIf { canvas.gcodeWindow && view.currentLine > 0 }?.let { lines ->

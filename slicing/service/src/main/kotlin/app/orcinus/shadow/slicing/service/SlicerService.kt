@@ -34,6 +34,7 @@ import app.orcinus.shadow.core.model.ModelSettings
 import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ObjColorChoice
 import app.orcinus.shadow.core.model.ObjectEdit
+import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PaintStroke
@@ -179,6 +180,17 @@ abstract class SlicerService<E> : Service()
         }.toParcel()
 
         override fun cancelLoad() = engine.cancelLoad()
+
+        override fun loadGcode(
+            gcodePath: String,
+            toolpathsPath: String,
+            sliceInfoPath: String?,
+            plateIndex: Int,
+            plateCount: Int,
+            applyBedType: Boolean,
+        ): GcodeLoadParcel = runBlocking {
+            engine.loadGcode(OutputPath(gcodePath), ScenePath(toolpathsPath), sliceInfoPath?.let(::ScenePath), plateIndex, plateCount, applyBedType)
+        }.toParcel()
 
         override fun edit(
             plate: Array<PlacedModelParcel>,

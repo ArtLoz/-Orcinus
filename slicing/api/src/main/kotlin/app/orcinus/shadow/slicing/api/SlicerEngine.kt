@@ -32,6 +32,7 @@ import app.orcinus.shadow.core.model.FlatteningPlanesOutcome
 import app.orcinus.shadow.core.model.FlowRateCalibration
 import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.FlushVolumesOutcome
+import app.orcinus.shadow.core.model.GcodeLoadOutcome
 import app.orcinus.shadow.core.model.GcodePlaceholderInfo
 import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
 import app.orcinus.shadow.core.model.LayerGcode
@@ -48,6 +49,7 @@ import app.orcinus.shadow.core.model.ModelSettingsOutcome
 import app.orcinus.shadow.core.model.ModelSettingsRequest
 import app.orcinus.shadow.core.model.ModelSource
 import app.orcinus.shadow.core.model.ObjColorChoice
+import app.orcinus.shadow.core.model.OutputPath
 import app.orcinus.shadow.core.model.ObjectCut
 import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.OrcaText
@@ -220,6 +222,23 @@ interface PlateInspector {
      * at once, from any thread.
      */
     fun cancelLoad() = Unit
+
+    /**
+     * Plater::load_gcode() and Print::export_gcode_from_previous_file(): the
+     * G-code file [gcode] read by GCodeProcessor::process_file(), its moves
+     * standing on the plate at [plateIndex] of [plateCount], written as the
+     * preview's toolpaths into [toolpaths], and what the plate keeps of it for
+     * its 3MF files into [sliceInfo] (null writes none). With [applyBedType]
+     * the G-code's plate type becomes the project's, as load_gcode() sets it.
+     */
+    suspend fun loadGcode(
+        gcode: OutputPath,
+        toolpaths: ScenePath,
+        sliceInfo: ScenePath?,
+        plateIndex: Int,
+        plateCount: Int,
+        applyBedType: Boolean,
+    ): GcodeLoadOutcome = GcodeLoadOutcome.Failure("Opening G-code is not supported")
 
     /**
      * Plater::export_3mf() for "Save project": the objects of every plate in

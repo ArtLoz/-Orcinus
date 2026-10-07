@@ -19,7 +19,9 @@ class ModelInstance;
 class ModelObject;
 class ModelVolume;
 class PresetBundle;
+class Print;
 struct Calib_Params;
+struct GCodeProcessorResult;
 }
 
 namespace orcinus::orca::detail {
@@ -194,5 +196,19 @@ bool write_mesh(const indexed_triangle_set& its, const std::string& path);
 // its main thread; the engine's calls run on the service's binder threads, one
 // at a time under the engine's mutex, so the calling thread is recorded first.
 void save_config(EngineContext& context);
+
+// GLCanvas3D::load_gcode_preview() of gcode_result: the toolpaths file the
+// preview reads, with the filament colours of config and the legend's figures
+// of print's statistics, as a slice writes it.
+bool write_toolpaths(
+    const Slic3r::GCodeProcessorResult& gcode_result,
+    const Slic3r::Print& print,
+    const Slic3r::DynamicPrintConfig& config,
+    const std::string& path
+);
+
+// render_all_plates_stats(): what gcode_result used of each of filaments (from
+// 1), of the colors filaments there are.
+std::vector<FilamentUsage> filament_usage(const Slic3r::GCodeProcessorResult& gcode_result, const std::vector<int>& filaments, std::size_t colors);
 
 }  // namespace orcinus::orca::detail

@@ -733,6 +733,8 @@ data class PlateSliceResult(
     val primeTowerOutside: Boolean = false,
     /** SliceOutcome.Success.addLineNumber. */
     val addLineNumber: Boolean = false,
+    /** The presets a G-code file the plate shows names (GcodeLoadOutcome.Success.settingsIds); null for a slice. */
+    val settingsIds: GcodeSettingsIds? = null,
 )
 
 enum class PlateProblemKind {
@@ -1436,6 +1438,8 @@ data class PlateState(
     /** The G-code of the current plate. */
     val result: PlateSliceResult? = null,
     val problem: PlateProblem? = null,
+    /** The preview-only mode of a G-code file or a .gcode.3mf the plate shows; null for a project of the user's. */
+    val previewOnly: PreviewOnly? = null,
 ) {
     /** The objects the plate has selected a copy of, in its order. */
     fun selectedObjects(): List<PlateObject> {
@@ -1518,10 +1522,13 @@ data class PlateState(
             // PartPlate::can_slice(): not while the print's validation fails (m_apply_invalid).
             validation?.error == null
 
-    /** MainFrame::get_enable_slice_status() of "Slice all": always, while nothing is being sliced. */
+    /**
+     * MainFrame::get_enable_slice_status() of "Slice all": always, while
+     * nothing is being sliced and no G-code file is shown on its own.
+     */
     val canSliceAll: Boolean
         get() = engine.availability == EngineAvailability.READY && profiles != null && !busy && !slicingAll &&
-            objects.none(PlateObject::placing)
+            objects.none(PlateObject::placing) && previewOnly == null
 
     /**
      * MainFrame::get_enable_slice_status(): the slice button slices the plate

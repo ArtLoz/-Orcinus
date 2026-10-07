@@ -5785,3 +5785,53 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_endBrimEars(JNIEnv* 
 {
     orcinus::orca::end_brim_ears();
 }
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_loadGcode(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring gcode_path,
+    jstring toolpaths_path,
+    jstring slice_info_path,
+    jint plate_index,
+    jint plate_count,
+    jboolean apply_bed_type
+)
+{
+    const orcinus::orca::GcodeLoad result = orcinus::orca::load_gcode(
+        to_utf8(env, gcode_path), to_utf8(env, toolpaths_path), slice_info_path != nullptr ? to_utf8(env, slice_info_path) : std::string(),
+        plate_index, plate_count, apply_bed_type == JNI_TRUE);
+    // The filaments the G-code prints with, and eight amounts for each, as a slice's.
+    std::vector<jint> filaments;
+    std::vector<double> amounts;
+    for (const orcinus::orca::FilamentUsage& usage : result.filaments) {
+        filaments.push_back(usage.filament);
+        for (const std::array<double, 2>& used : {usage.model, usage.support, usage.flushed, usage.wipe_tower}) {
+            amounts.insert(amounts.end(), used.begin(), used.end());
+        }
+    }
+    const jintArray filament_array = env->NewIntArray(static_cast<jsize>(filaments.size()));
+    env->SetIntArrayRegion(filament_array, 0, static_cast<jsize>(filaments.size()), filaments.data());
+    const jclass result_class = env->FindClass("app/orcinus/shadow/slicing/nativebridge/NativeGcodeLoad");
+    const jmethodID constructor = env->GetMethodID(
+        result_class, "<init>", "(JLjava/lang/String;ZJJJD[I[DZZLjava/lang/String;Ljava/lang/String;[Ljava/lang/String;Z)V");
+    return env->NewObject(
+        result_class,
+        constructor,
+        static_cast<jlong>(result.status),
+        to_java(env, result.message),
+        result.valid ? JNI_TRUE : JNI_FALSE,
+        static_cast<jlong>(result.layer_count),
+        static_cast<jlong>(result.estimated_print_time_seconds),
+        static_cast<jlong>(result.filament_micrometers),
+        static_cast<jdouble>(result.total_cost),
+        filament_array,
+        to_java(env, amounts.data(), amounts.size()),
+        result.toolpaths_written ? JNI_TRUE : JNI_FALSE,
+        result.slice_info_written ? JNI_TRUE : JNI_FALSE,
+        to_java(env, result.printer_settings),
+        to_java(env, result.print_settings),
+        to_java(env, result.filament_settings),
+        result.bed_type_changed ? JNI_TRUE : JNI_FALSE
+    );
+}

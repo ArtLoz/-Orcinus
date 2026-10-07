@@ -18,6 +18,7 @@ import app.orcinus.shadow.core.model.PlateObject
 import app.orcinus.shadow.core.model.PlateSliceResult
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.Point2
+import app.orcinus.shadow.core.model.PreviewOnlyKind
 import app.orcinus.shadow.core.model.PrintHostJob
 import app.orcinus.shadow.core.model.PrintOptions
 import app.orcinus.shadow.core.model.Printer3dOsListsOutcome
@@ -79,6 +80,12 @@ data class PreviewUiState(
     /** Where every plate stands (PartPlateList), and the one whose G-code the preview shows. */
     val plateOrigins: List<Point2> = listOf(Point2(0.0, 0.0)),
     val currentPlate: Int = 0,
+    /**
+     * Plater::priv::set_current_panel()'s enable_select_plate_toolbar(): the
+     * plate bar of several plates, but not of a G-code file nor of an exported
+     * file of one sliced plate.
+     */
+    val plateBar: Boolean = plateOrigins.size > 1,
     /** Another plate can be shown: nothing is being sliced or changed. */
     val canSelectPlate: Boolean = false,
     /** The plates' names, empty for one the user did not name. */
@@ -97,6 +104,10 @@ data class PreviewUiState(
     val profileUpdates: ProfileUpdatesNotice? = null,
     /** PlateState.profileUpdatesInstalled: the packages a forced update installed. */
     val profileUpdatesInstalled: List<ProfileUpdate> = emptyList(),
+    /** The preview-only mode of a G-code file or an exported file the preview shows; null for none. */
+    val previewOnly: PreviewOnlyKind? = null,
+    /** The file whose G-code load_gcode() or load_gcode_files() reads while the preview waits for it (wxBusyCursor). */
+    val gcodeLoading: String? = null,
 ) {
     /** The codes changed since the slice: its G-code no longer holds them (PartPlate's invalid slice result). */
     val outdated: Boolean get() = result != null && result.layerGcodes != layerGcodes
@@ -292,6 +303,11 @@ private fun PlateState.toPreviewUiState() = PreviewUiState(
     slicingCancelling = slicing?.cancelling == true,
     slicesCompleted = slicesCompleted,
     plateOrigins = plateOrigins(),
+    plateBar = plates.size > 1 && when (previewOnly?.kind) {
+        null -> true
+        PreviewOnlyKind.GCODE -> false
+        PreviewOnlyKind.EXPORTED_FILE -> (previewOnly?.slicedPlates ?: 0) > 1
+    },
     currentPlate = currentPlate,
     canSelectPlate = !busy && !slicingAll,
     plateNames = plates.map(PartPlate::name),
@@ -302,4 +318,6 @@ private fun PlateState.toPreviewUiState() = PreviewUiState(
     simplifySuggestions = simplifySuggestions.mapNotNull { mesh -> objects.firstOrNull { it.mesh == mesh } },
     profileUpdates = profileUpdates,
     profileUpdatesInstalled = profileUpdatesInstalled,
+    previewOnly = previewOnly?.kind,
+    gcodeLoading = previewOnly?.fileName?.takeIf { importing && result?.toolpaths == null },
 )

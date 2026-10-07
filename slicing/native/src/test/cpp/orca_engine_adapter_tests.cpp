@@ -8803,3 +8803,127 @@ TEST_CASE("The other copies of an object follow the scale, tilt and reset of one
         CHECK(linear.determinant() == Catch::Approx(-1.0));
     }
 }
+
+TEST_CASE("A G-code file and a sliced plate's .gcode.3mf open in the preview, as Plater::load_gcode() and load_gcode_files() open them", "[Adapter][Gcode]")
+{
+    require_engine();
+    orca::select_plate(0, 1);
+    const std::string gcode = output_path("opened.gcode");
+    const std::string slice_info = output_path("opened.slice.json");
+    const orca::SliceResult sliced =
+        orca::slice("opened-gcode", plate_of({}), gcode, {}, k2_plus_profiles(), {}, {}, {}, {}, {}, {}, {}, slice_info);
+    INFO(sliced.message);
+    REQUIRE(sliced.status == orca::SliceStatus::success);
+
+    // Plater::load_gcode(): the G-code's moves, time, cost and presets.
+    const std::string toolpaths = output_path("opened.toolpaths");
+    const std::string opened_info = output_path("opened.toolpaths.slice.json");
+    const orca::GcodeLoad opened = orca::load_gcode(gcode, toolpaths, opened_info, 0, 1, true);
+    INFO(opened.message);
+    REQUIRE(opened.status == orca::SliceStatus::success);
+    CHECK(opened.valid);
+    CHECK(opened.layer_count == sliced.layer_count);
+    CHECK(opened.estimated_print_time_seconds == sliced.estimated_print_time_seconds);
+    CHECK(opened.filament_micrometers == Catch::Approx(sliced.filament_micrometers).epsilon(0.02));
+    CHECK(opened.total_cost == Catch::Approx(sliced.total_cost).epsilon(0.02));
+    REQUIRE(opened.filaments.size() == 1);
+    CHECK(opened.filaments.front().filament == 1);
+    CHECK(opened.filaments.front().model[1] > 0.0);
+    // The legend's "Settings": the presets the G-code names.
+    CHECK(opened.printer_settings == "Creality K2 Plus 0.4 nozzle");
+    CHECK(opened.print_settings == "0.20mm Standard @Creality K2 Plus 0.4 nozzle");
+    REQUIRE(opened.filament_settings.size() == 1);
+    CHECK(opened.filament_settings.front() == "Generic PLA @K2 Plus-all");
+    REQUIRE(opened.toolpaths_written);
+    // What a printer that takes a .gcode.3mf is sent with: its prediction and filament.
+    REQUIRE(opened.slice_info_written);
+    const std::string info = read_file(opened_info);
+    CHECK(info.find("\"gcode_prediction\":") != std::string::npos);
+    CHECK(info.find("\"gcode_prediction\":\"0\"") == std::string::npos);
+    CHECK(info.find("\"used_g\"") != std::string::npos);
+    // Plater::send_gcode() of the file to a printer that takes a .gcode.3mf: its
+    // G-code without objects.
+    {
+        orca::ProjectPlate opened_plate;
+        opened_plate.slice_info_path = opened_info;
+        opened_plate.gcode_path = gcode;
+        const std::string upload = output_path("opened-upload.gcode.3mf");
+        const orca::ProjectSave uploaded = orca::save_project(upload, {}, k2_plus_profiles(), {opened_plate}, {}, 0, orca::SlicedPlates::upload);
+        INFO(uploaded.message);
+        REQUIRE(uploaded.status == orca::SceneStatus::success);
+        mz_zip_archive zip_archive;
+        mz_zip_zero_struct(&zip_archive);
+        REQUIRE(mz_zip_reader_init_file(&zip_archive, upload.c_str(), 0) == MZ_TRUE);
+        CHECK(mz_zip_reader_locate_file(&zip_archive, "Metadata/plate_1.gcode", nullptr, 0) >= 0);
+        mz_zip_reader_end(&zip_archive);
+    }
+    libvgcode::GCodeInputData data;
+    orcinus::toolpaths::Statistics statistics;
+    REQUIRE(orcinus::toolpaths::read_file(toolpaths, data, statistics));
+    REQUIRE_FALSE(data.vertices.empty());
+    CHECK(data.vertices.back().layer_id + 1 == opened.layer_count);
+    CHECK(statistics.total_cost == Catch::Approx(opened.total_cost));
+    CHECK(statistics.total_weight > 0.0);
+    const auto min_x = [](const libvgcode::GCodeInputData& input) {
+        float x = std::numeric_limits<float>::max();
+        for (const libvgcode::PathVertex& vertex : input.vertices) {
+            if (vertex.type == libvgcode::EMoveType::Extrude) {
+                x = std::min(x, vertex.position[0]);
+            }
+        }
+        return x;
+    };
+
+    // export_gcode_from_previous_file() of the second of two plates: the moves
+    // stand where that plate does, 420 mm to the right.
+    const std::string second = output_path("opened-second.toolpaths");
+    REQUIRE(orca::load_gcode(gcode, second, {}, 1, 2, false).toolpaths_written);
+    libvgcode::GCodeInputData moved;
+    REQUIRE(orcinus::toolpaths::read_file(second, moved, statistics));
+    CHECK(min_x(moved) == Catch::Approx(min_x(data) + 420.0f).margin(0.01));
+
+    // "does not contain valid G-code.": a file without moves has no layers.
+    const std::string text = output_path("opened.txt.gcode");
+    std::ofstream(text) << "; not a print\n";
+    const orca::GcodeLoad empty = orca::load_gcode(text, output_path("opened-empty.toolpaths"), output_path("opened-empty.slice.json"), 0, 1, true);
+    REQUIRE(empty.status == orca::SliceStatus::success);
+    CHECK_FALSE(empty.valid);
+    CHECK_FALSE(empty.toolpaths_written);
+    CHECK_FALSE(empty.slice_info_written);
+
+    // load_files() of "Export plate sliced file": no objects, so the plate's G-code
+    // is its slice result (m_exported_file), and no "no geometry" warning.
+    orca::ProjectPlate plate;
+    plate.slice_info_path = slice_info;
+    plate.gcode_path = gcode;
+    const std::string exported = output_path("opened-plate.gcode.3mf");
+    const orca::ProjectSave saved = orca::save_project(exported, plate_of({}), k2_plus_profiles(), {plate}, {}, 0, orca::SlicedPlates::current);
+    INFO(saved.message);
+    REQUIRE(saved.status == orca::SceneStatus::success);
+    const orca::ImportedModels project =
+        orca::import_model(exported, k2_plus_profiles(), {}, import_prefix("opened-plate"), {}, orca::ModelLoad::project);
+    INFO(project.message);
+    REQUIRE(project.status == orca::SceneStatus::success);
+    CHECK(project.project);
+    CHECK(project.objects.empty());
+    CHECK(std::none_of(project.notices.begin(), project.notices.end(), [](const orca::SettingsDialog& dialog) { return dialog.id == "no_geometry"; }));
+    REQUIRE(project.plates.size() == 1);
+    const std::string plate_gcode = project.plates.front().gcode_path;
+    REQUIRE_FALSE(plate_gcode.empty());
+    CHECK(read_file(plate_gcode) == read_file(gcode));
+    const orca::GcodeLoad from_archive = orca::load_gcode(plate_gcode, output_path("opened-plate.toolpaths"), {}, 0, 1, false);
+    REQUIRE(from_archive.status == orca::SliceStatus::success);
+    CHECK(from_archive.valid);
+    CHECK(from_archive.layer_count == opened.layer_count);
+    CHECK(from_archive.estimated_print_time_seconds == opened.estimated_print_time_seconds);
+
+    // A project with objects is no exported file: its plates' G-code is not taken.
+    const std::string with_model = output_path("opened-model.3mf");
+    REQUIRE(orca::save_project(with_model, plate_of({}), k2_plus_profiles(), {plate}, {}, 0, orca::SlicedPlates::none).status == orca::SceneStatus::success);
+    const orca::ImportedModels modelled =
+        orca::import_model(with_model, k2_plus_profiles(), {}, import_prefix("opened-model"), {}, orca::ModelLoad::project);
+    REQUIRE(modelled.status == orca::SceneStatus::success);
+    CHECK_FALSE(modelled.objects.empty());
+    REQUIRE_FALSE(modelled.plates.empty());
+    CHECK(modelled.plates.front().gcode_path.empty());
+}

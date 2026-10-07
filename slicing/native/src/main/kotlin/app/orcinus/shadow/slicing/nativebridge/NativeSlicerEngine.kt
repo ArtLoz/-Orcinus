@@ -107,8 +107,10 @@ import app.orcinus.shadow.core.model.FlushOption
 import app.orcinus.shadow.core.model.FlushVolumes
 import app.orcinus.shadow.core.model.FlushVolumesChange
 import app.orcinus.shadow.core.model.FlushVolumesOutcome
+import app.orcinus.shadow.core.model.GcodeLoadOutcome
 import app.orcinus.shadow.core.model.GcodePlaceholderInfo
 import app.orcinus.shadow.core.model.GcodePlaceholdersOutcome
+import app.orcinus.shadow.core.model.GcodeSettingsIds
 import app.orcinus.shadow.core.model.LayerGcode
 import app.orcinus.shadow.core.model.LayerGcodeRules
 import app.orcinus.shadow.core.model.LayerGcodeType
@@ -421,6 +423,36 @@ class NativeSlicerEngine(context: Context) :
     override fun cancelLoad() {
         loadCancelled = true
     }
+
+    override suspend fun loadGcode(
+        gcode: OutputPath,
+        toolpaths: ScenePath,
+        sliceInfo: ScenePath?,
+        plateIndex: Int,
+        plateCount: Int,
+        applyBedType: Boolean,
+    ): GcodeLoadOutcome =
+        whenReady(GcodeLoadOutcome::Failure) {
+            val result = NativeBindings.loadGcode(gcode.value, toolpaths.value, sliceInfo?.value, plateIndex, plateCount, applyBedType)
+            if (result.status != NativeSliceResult.SUCCESS) {
+                GcodeLoadOutcome.Failure(result.message)
+            } else {
+                GcodeLoadOutcome.Success(
+                    statistics = SliceStatistics(
+                        layerCount = result.layerCount.toInt(),
+                        estimatedPrintTimeSeconds = result.estimatedPrintTimeSeconds,
+                        filamentMillimeters = result.filamentMicrometers / 1_000.0,
+                        cost = result.totalCost,
+                        filaments = filamentUsagesOf(result.filaments, result.filamentAmounts),
+                    ),
+                    toolpaths = toolpaths.takeIf { result.toolpathsWritten },
+                    sliceInfo = sliceInfo?.takeIf { result.sliceInfoWritten },
+                    settingsIds = GcodeSettingsIds(result.printerSettings, result.printSettings, result.filamentSettings.toList()),
+                    valid = result.valid,
+                    bedTypeChanged = result.bedTypeChanged,
+                )
+            }
+        }
 
     override suspend fun editObjects(
         plate: List<PlacedModel>,
@@ -2941,6 +2973,8 @@ class NativeSlicerEngine(context: Context) :
                 extra = layerGcodeExtras[index],
             )
         },
+        // A plate of a project of no objects with its G-code (load_gcode_files()).
+        gcode = gcodePath.takeIf { it.isNotEmpty() }?.let(::OutputPath),
     )
 
     private fun NativeImportedObject.toLoadedObject(): LoadedObject {

@@ -76,6 +76,12 @@ void restore_project_info(Slic3r::Model& model, const std::string& directory);
 // What the file brings into the presets once its objects are loaded: a
 // project's presets and settings are selected, or the plate gets the
 // filaments its objects need. result gets the first plate's settings and codes.
-void apply_3mf(Archive3mf& archive, const std::string& file_name, SettingsDialogs& dialogs, ImportedModels& result);
+// A project without objects takes its plates' G-code (load_gcode_files()),
+// copied beside its objects as output_prefix-plate-N.gcode when a prefix is given.
+void apply_3mf(Archive3mf& archive, const std::string& file_name, SettingsDialogs& dialogs, ImportedModels& result, const std::string& output_prefix = {});
+
+// PartPlate::load_gcode_from_file() finds the G-code of a plate of the file:
+// a project of no objects opens as Plater's exported file (m_exported_file).
+bool has_plate_gcode(const Archive3mf& archive);
 
 }  // namespace orcinus::orca::detail

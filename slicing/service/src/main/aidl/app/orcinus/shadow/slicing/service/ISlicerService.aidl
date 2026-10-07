@@ -31,6 +31,7 @@ import app.orcinus.shadow.slicing.service.PresetBundlesParcel;
 import app.orcinus.shadow.slicing.service.EngineStatusParcel;
 import app.orcinus.shadow.slicing.service.FlatteningPlanesParcel;
 import app.orcinus.shadow.slicing.service.VolumeDescriptionParcel;
+import app.orcinus.shadow.slicing.service.GcodeLoadParcel;
 import app.orcinus.shadow.slicing.service.InspectionParcel;
 import app.orcinus.shadow.slicing.service.IModelLoadProgress;
 import app.orcinus.shadow.slicing.service.ISliceCallback;
@@ -101,6 +102,8 @@ interface ISlicerService {
     );
     /** The Cancel of the load's ProgressDialog; runs beside the load. */
     oneway void cancelLoad();
+    /** load_gcode(): the G-code file read for the preview, its toolpaths written to toolpathsPath. */
+    GcodeLoadParcel loadGcode(String gcodePath, String toolpathsPath, @nullable String sliceInfoPath, int plateIndex, int plateCount, boolean applyBedType);
     /** edit_object(): edit is the ObjectEdit's name; volume -1 edits the whole object. */
     ModelLoadParcel edit(
         in PlacedModelParcel[] plate,
