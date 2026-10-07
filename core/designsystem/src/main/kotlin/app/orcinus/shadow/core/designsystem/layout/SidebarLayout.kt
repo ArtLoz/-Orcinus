@@ -25,6 +25,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -80,6 +81,15 @@ fun OrcaSidebarLayout(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
+    // The tab bar, the sidebar and the content move between the layouts below
+    // rather than being composed anew, so a tablet that turns, or a window that
+    // changes class, keeps the screens' view models, open tools and scrolling.
+    val currentTopBar by rememberUpdatedState(topBar)
+    val currentSidebar by rememberUpdatedState(sidebar)
+    val currentContent by rememberUpdatedState(content)
+    val movableTopBar = remember { movableContentOf { currentTopBar() } }
+    val movableSidebar = remember { movableContentOf { currentSidebar() } }
+    val movableContent = remember { movableContentOf { currentContent() } }
     val toggle: @Composable (Modifier) -> Unit = { toggleModifier ->
         OrcaSidebarToggle(
             contentDescription = toggleDescription,
@@ -91,13 +101,13 @@ fun OrcaSidebarLayout(
     }
     val contentWithToggle: @Composable () -> Unit = {
         Box(Modifier.fillMaxSize()) {
-            content()
+            movableContent()
             toggle(Modifier.align(Alignment.TopStart))
         }
     }
     when (layout) {
         OrcaWindowLayout.Expanded -> Column(modifier.fillMaxSize()) {
-            topBar()
+            movableTopBar()
             Row(Modifier.weight(1f)) {
                 AnimatedVisibility(
                     visible = sidebarVisible,
@@ -110,7 +120,7 @@ fun OrcaSidebarLayout(
                             .fillMaxHeight()
                             .background(OrcaTheme.colors.window)
                             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Start)),
-                    ) { sidebar() }
+                    ) { movableSidebar() }
                 }
                 Box(
                     Modifier
@@ -121,7 +131,7 @@ fun OrcaSidebarLayout(
         }
 
         OrcaWindowLayout.Medium -> Column(modifier.fillMaxSize()) {
-            topBar()
+            movableTopBar()
             Box(Modifier.weight(1f)) {
                 val drawerState = rememberSidebarDrawerState(sidebarVisible, onSidebarVisibleChange)
                 var sheetWidth by remember { mutableIntStateOf(0) }
@@ -134,12 +144,12 @@ fun OrcaSidebarLayout(
                             drawerContentColor = OrcaTheme.colors.text,
                             // Under the tab bar, which keeps clear of the status bar.
                             windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Start),
-                        ) { sidebar() }
+                        ) { movableSidebar() }
                     },
                     drawerState = drawerState,
                     gesturesEnabled = drawerState.isOpen,
                 ) {
-                    Box(Modifier.fillMaxSize()) { content() }
+                    Box(Modifier.fillMaxSize()) { movableContent() }
                 }
                 // Over the scrim, at the edge of the panel, which it follows as it opens and closes.
                 toggle(
@@ -166,14 +176,14 @@ fun OrcaSidebarLayout(
                         drawerState = drawerState,
                         drawerContainerColor = OrcaTheme.colors.window,
                         drawerContentColor = OrcaTheme.colors.text,
-                    ) { sidebar() }
+                    ) { movableSidebar() }
                 },
                 modifier = modifier,
                 drawerState = drawerState,
                 gesturesEnabled = drawerState.isOpen,
             ) {
                 Column(Modifier.fillMaxSize()) {
-                    topBar()
+                    movableTopBar()
                     Box(Modifier.weight(1f)) { contentWithToggle() }
                 }
             }
