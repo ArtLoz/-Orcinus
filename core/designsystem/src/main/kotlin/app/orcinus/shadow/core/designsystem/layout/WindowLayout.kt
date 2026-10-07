@@ -1,9 +1,11 @@
 package app.orcinus.shadow.core.designsystem.layout
 
+import androidx.compose.material3.adaptive.HingeInfo
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.window.core.layout.WindowSizeClass
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 
@@ -28,7 +30,7 @@ enum class OrcaWindowLayout {
     /** Wider than a phone: the canvas's toolbars, windows and panels as on desktop, the slice button in the tab bar. */
     val wide: Boolean get() = this != Compact
 
-    /** The sidebar stands beside the content; otherwise it opens over it. */
+    /** The sidebar stands beside the content; otherwise it opens over it, unless a fold puts it below (currentOrcaSidebarDocked()). */
     val docksSidebar: Boolean get() = this == Expanded
 }
 
@@ -45,11 +47,30 @@ fun currentOrcaWindowLayout(): OrcaWindowLayout {
 /**
  * Whether the window is at least Material's medium height (480 dp), with room
  * for a column of tools beside the canvas; a phone in landscape is wide but
- * not tall.
+ * not tall, and so is the part of a foldable on a table above its fold.
  */
 @Composable
-fun currentOrcaWindowTall(): Boolean =
-    currentWindowAdaptiveInfoV2().windowSizeClass.isHeightAtLeastBreakpoint(WindowSizeClass.HEIGHT_DP_MEDIUM_LOWER_BOUND)
+fun currentOrcaWindowTall(): Boolean {
+    val fold = currentOrcaTabletopFold()
+    if (fold != null) return with(LocalDensity.current) { fold.bounds.top.toDp() } >= WindowSizeClass.HEIGHT_DP_MEDIUM_LOWER_BOUND.dp
+    return currentWindowAdaptiveInfoV2().windowSizeClass.isHeightAtLeastBreakpoint(WindowSizeClass.HEIGHT_DP_MEDIUM_LOWER_BOUND)
+}
+
+/**
+ * The fold of a foldable held half open like a laptop on a table, in a window
+ * wider than a phone: the canvas stands above it and the sidebar lies below it.
+ * Null when the window does not fold across.
+ */
+@Composable
+fun currentOrcaTabletopFold(): HingeInfo? {
+    val info = currentWindowAdaptiveInfoV2()
+    if (!info.windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)) return null
+    return info.windowPosture.hingeList.firstOrNull { !it.isVertical && (!it.isFlat || it.isSeparating) }
+}
+
+/** Whether the sidebar stands beside or below the content rather than opening over it. */
+@Composable
+fun currentOrcaSidebarDocked(): Boolean = currentOrcaWindowLayout().docksSidebar || currentOrcaTabletopFold() != null
 
 /**
  * The width of the docked sidebar: wider on a large window (from 1200 dp), as

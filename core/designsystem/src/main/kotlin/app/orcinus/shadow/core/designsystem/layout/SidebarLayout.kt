@@ -2,15 +2,20 @@ package app.orcinus.shadow.core.designsystem.layout
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -26,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -33,7 +39,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.component.OrcaSidebarToggle
@@ -61,6 +70,9 @@ val OrcaSidebarToggleSpace = SidebarTogglePadding * 2 + 48.dp
  * - Compact: the sidebar is a modal navigation drawer over the whole screen,
  *   tab bar included. It opens with the collapse button and closes with a
  *   swipe, a tap on the scrim, or Back.
+ * - A foldable held half open like a laptop on a table, wider than a phone:
+ *   the tab bar and the content above the fold, the sidebar docked below it,
+ *   so the canvas stands up and the settings lie on the table.
  *
  * Neither drawer opens with a swipe: the drawer takes a sideways drag anywhere
  * on the content, so scrolling a page that leaves the drag to it (the
@@ -105,8 +117,45 @@ fun OrcaSidebarLayout(
             toggle(Modifier.align(Alignment.TopStart))
         }
     }
-    when (layout) {
-        OrcaWindowLayout.Expanded -> Column(modifier.fillMaxSize()) {
+    val tabletopFold = currentOrcaTabletopFold()
+    when {
+        tabletopFold != null -> Column(modifier.fillMaxSize()) {
+            movableTopBar()
+            var top by remember { mutableFloatStateOf(0f) }
+            BoxWithConstraints(
+                Modifier
+                    .weight(1f)
+                    .onPlaced { top = it.positionInWindow().y },
+            ) {
+                val density = LocalDensity.current
+                val aboveFold = with(density) { (tabletopFold.bounds.top - top).coerceAtLeast(0f).toDp() }
+                val belowFold = (maxHeight - aboveFold).coerceAtLeast(0.dp)
+                val foldHeight = with(density) { tabletopFold.bounds.height.toDp() }
+                Column(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                    ) { contentWithToggle() }
+                    AnimatedVisibility(
+                        visible = sidebarVisible,
+                        enter = expandVertically(),
+                        exit = shrinkVertically(),
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(belowFold)
+                                .background(OrcaTheme.colors.window)
+                                .padding(top = foldHeight)
+                                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)),
+                        ) { movableSidebar() }
+                    }
+                }
+            }
+        }
+
+        layout == OrcaWindowLayout.Expanded -> Column(modifier.fillMaxSize()) {
             movableTopBar()
             Row(Modifier.weight(1f)) {
                 AnimatedVisibility(
@@ -130,7 +179,7 @@ fun OrcaSidebarLayout(
             }
         }
 
-        OrcaWindowLayout.Medium -> Column(modifier.fillMaxSize()) {
+        layout == OrcaWindowLayout.Medium -> Column(modifier.fillMaxSize()) {
             movableTopBar()
             Box(Modifier.weight(1f)) {
                 val drawerState = rememberSidebarDrawerState(sidebarVisible, onSidebarVisibleChange)
@@ -168,7 +217,7 @@ fun OrcaSidebarLayout(
             }
         }
 
-        OrcaWindowLayout.Compact -> {
+        else -> {
             val drawerState = rememberSidebarDrawerState(sidebarVisible, onSidebarVisibleChange)
             ModalNavigationDrawer(
                 drawerContent = {

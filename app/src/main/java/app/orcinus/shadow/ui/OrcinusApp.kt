@@ -50,6 +50,7 @@ import app.orcinus.shadow.core.designsystem.component.OrcaTab
 import app.orcinus.shadow.core.designsystem.component.OrcaTabBar
 import app.orcinus.shadow.core.designsystem.layout.OrcaSidebarLayout
 import app.orcinus.shadow.core.designsystem.layout.OrcaWindowLayout
+import app.orcinus.shadow.core.designsystem.layout.currentOrcaSidebarDocked
 import app.orcinus.shadow.core.designsystem.layout.currentOrcaWindowLayout
 import app.orcinus.shadow.core.model.ArchiveEntry
 import app.orcinus.shadow.core.model.ArchivePreview
@@ -488,9 +489,10 @@ private fun Workspace(
     // canvas because the sidebar stood docked in landscape, and turned back finds it as it was.
     var sidebarDocked by rememberSaveable { mutableStateOf(true) }
     var sidebarOpened by rememberSaveable { mutableStateOf(false) }
-    val sidebarVisible = if (layout.docksSidebar) sidebarDocked else sidebarOpened
+    val docksSidebar = currentOrcaSidebarDocked()
+    val sidebarVisible = if (docksSidebar) sidebarDocked else sidebarOpened
     fun showSidebar(visible: Boolean) {
-        if (layout.docksSidebar) sidebarDocked = visible else sidebarOpened = visible
+        if (docksSidebar) sidebarDocked = visible else sidebarOpened = visible
     }
 
     // A slice that finishes shows its G-code; another plate becoming current,
@@ -594,7 +596,7 @@ private fun Workspace(
     var assemblyShown by rememberSaveable { mutableStateOf(false) }
     // CreatePrinterPresetDialog of the Setup Wizard's "Create" opens from the docked sidebar.
     LaunchedEffect(createPrinterPending) {
-        if (createPrinterPending && layout.docksSidebar) sidebarDocked = true
+        if (createPrinterPending && docksSidebar) sidebarDocked = true
     }
     // PlaterDropTarget::OnDropFiles(): documents another app drags onto the window (split
     // screen, a desktop mode) load as load_files() loads them, on the Prepare tab
