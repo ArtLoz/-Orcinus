@@ -23,4 +23,29 @@
     <string name="notice_missing">Сведения не найдены</string>
     <string name="component_version">Версия %1$s</string>
     <string name="license_link_only">Полный текст лицензии: %1$s</string>
+
+    <!-- TroubleshootDialog: OrcaSlicer's texts, which its catalogue lacks or leaves untranslated in Russian. -->
+    <string name="troubleshoot_title">Центр устранения неполадок</string>
+    <string name="troubleshoot_info_needed">Для поиска причины проблемы нужны сведения. Подробное руководство — на странице вики.</string>
+    <string name="troubleshoot_info_pack">Кнопка «Упаковать» собирает файл проекта и журналы текущего сеанса в ZIP-архив.</string>
+    <string name="troubleshoot_info_examples">Сообщая о проблеме, полезно приложить наглядные примеры: изображения или запись экрана.</string>
+    <string name="troubleshoot_report_issue">Сообщить о проблеме</string>
+    <string name="troubleshoot_pack">Упаковать</string>
+    <string name="troubleshoot_profiles">Профили</string>
+    <string name="troubleshoot_clean_system">Очистить кэш системных профилей</string>
+    <string name="troubleshoot_clean_system_tip">Очищает и пересоздаёт кэш системных профилей при следующем запуске</string>
+    <string name="troubleshoot_clean">Очистить</string>
+    <string name="troubleshoot_loaded_profiles">Обзор загруженных профилей</string>
+    <string name="troubleshoot_loaded_profiles_tip">Экспортирует подробный обзор загруженных профилей в формате JSON</string>
+    <string name="troubleshoot_active">Активные</string>
+    <string name="troubleshoot_printers">Принтеры</string>
+    <string name="troubleshoot_processes">Настройки печати</string>
+    <string name="troubleshoot_log_level">Уровень ведения журнала</string>
+    <string name="troubleshoot_review_project">Выберите «Нет», чтобы закрыть окно и проверить проект</string>
+    <string name="troubleshoot_no_project">В текущем сеансе нет файла проекта. В архив войдут только журналы</string>
+    <string name="troubleshoot_export_failed">Не удалось экспортировать\nПроверьте права на запись и не занят ли файл другим приложением</string>
+    <string name="troubleshoot_clean_failed">Не удалось удалить системную папку...</string>
+    <!-- RebuildSystemProfiles() restarts the desktop app at once; the app cleans the cache when it starts next. -->
+    <string name="troubleshoot_clean_next_start">Кэш будет очищен и пересоздан при следующем запуске приложения.</string>
+    <string name="troubleshoot_clean_pending">Будет очищен при следующем запуске приложения</string>
 </resources>

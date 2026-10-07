@@ -13,6 +13,12 @@ val orcaRelease: Provider<String> = providers
     .asText
     .map { lock -> requireNotNull(Regex("\"release\"\\s*:\\s*\"v?([^\"]+)\"").find(lock)) { "No release in upstream/orca.lock.json" }.groupValues[1] }
 
+/** The commit of that release, which the Troubleshoot Center shows as the build. */
+val orcaCommit: Provider<String> = providers
+    .fileContents(rootProject.layout.projectDirectory.file("upstream/orca.lock.json"))
+    .asText
+    .map { lock -> Regex("\"commit\"\\s*:\\s*\"([0-9a-f]+)\"").find(lock)?.groupValues?.get(1).orEmpty() }
+
 /**
  * The public repository with the source code of this build, shown on the About
  * page. Set orcinus.sourceUrl in gradle.properties or pass -Porcinus.sourceUrl;
@@ -53,6 +59,7 @@ android {
         }
 
         buildConfigField("String", "ORCA_RELEASE", "\"${orcaRelease.get()}\"")
+        buildConfigField("String", "ORCA_COMMIT", "\"${orcaCommit.get()}\"")
         buildConfigField("String", "SOURCE_URL", "\"${publicSourceUrl.get()}\"")
         buildConfigField("String", "LICENSE_ID", "\"AGPL-3.0-only\"")
     }

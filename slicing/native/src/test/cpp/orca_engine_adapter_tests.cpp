@@ -41,9 +41,12 @@
 #include <STEPControl_Writer.hxx>
 #include <gp_Pnt.hxx>
 
+#include <nlohmann/json.hpp>
+
 #include "orca_engine_adapter.hpp"
 #include "toolpaths_file.hpp"
 #include "libslic3r/I18N.hpp"
+#include "libslic3r/Utils.hpp"
 
 namespace orca = orcinus::orca;
 namespace fs = boost::filesystem;
@@ -8676,6 +8679,86 @@ void copy_tree(const fs::path& from, const fs::path& to)
 }
 
 }  // namespace
+
+TEST_CASE("The Troubleshoot Center counts and lists the loaded profiles as GetProfilesOverview() does", "[Adapter][Troubleshoot]")
+{
+    require_engine();
+    const orca::ProfilesOverview overview = orca::profiles_overview();
+    REQUIRE_FALSE(overview.json.empty());
+    const nlohmann::ordered_json root = nlohmann::ordered_json::parse(overview.json);
+    const auto size_of = [&root](const char* key) { return static_cast<std::int32_t>(root.at(key).size()); };
+    const auto contains = [](const nlohmann::ordered_json& names, const std::string& name) {
+        return std::any_of(names.begin(), names.end(), [&name](const nlohmann::ordered_json& item) { return item.get<std::string>() == name; });
+    };
+
+    // The counts come first, then the lists they count.
+    REQUIRE(root.begin().key() == "Overview");
+    const nlohmann::ordered_json& counts = root.at("Overview");
+    CHECK(counts.at("printers__act").get<std::int32_t>() == overview.printers_active);
+    CHECK(counts.at("printers__usr").get<std::int32_t>() == overview.printers_user);
+    CHECK(counts.at("filaments_act").get<std::int32_t>() == overview.filaments_active);
+    CHECK(counts.at("filaments_usr").get<std::int32_t>() == overview.filaments_user);
+    CHECK(counts.at("processes_act").get<std::int32_t>() == overview.processes_active);
+    CHECK(counts.at("processes_usr").get<std::int32_t>() == overview.processes_user);
+    CHECK(size_of("printers_enabled") == overview.printers_active);
+    CHECK(size_of("printers_user") == overview.printers_user);
+    CHECK(size_of("filaments_user") == overview.filaments_user);
+    CHECK(size_of("processes_user") == overview.processes_user);
+    if (overview.filaments_active > 0) {
+        CHECK(size_of("filaments_enabled") == overview.filaments_active);
+    }
+
+    // The printer the Setup Wizard installed, and its processes under its preset.
+    CHECK(contains(root.at("printers_enabled"), "Creality K2 Plus"));
+    const nlohmann::ordered_json& processes = root.at("processes_enabled");
+    REQUIRE(processes.contains(k2_plus_profiles().printer));
+    CHECK(contains(processes.at(k2_plus_profiles().printer), k2_plus_profiles().process));
+    std::int32_t listed = 0;
+    for (const auto& item : processes.items()) {
+        listed += static_cast<std::int32_t>(item.value().size());
+    }
+    CHECK(listed == overview.processes_active);
+
+    CHECK(overview.printers_system > 0);
+    CHECK(overview.filaments_system > 0);
+    CHECK(overview.processes_system > 0);
+    CHECK_FALSE(overview.system_cleaned);
+}
+
+TEST_CASE("Clean system profiles cache removes the system folder at the next start", "[Adapter][Troubleshoot]")
+{
+    initialize_engine();
+    const fs::path scratch = fs::path(device_dir) / "tmp" / "troubleshoot-data";
+    fs::remove_all(scratch);
+    fs::create_directories(scratch / "system" / "Creality");
+    {
+        std::ofstream((scratch / "system" / "Creality.json").string()) << "{}";
+    }
+
+    // A start that was not asked to keeps the folder.
+    orca::remove_cleaned_system_profiles(scratch.string());
+    CHECK(fs::exists(scratch / "system" / "Creality.json"));
+
+    // The engine marks the data directory it runs on: here the scratch one.
+    const std::string engine_data_dir = Slic3r::data_dir();
+    Slic3r::set_data_dir(scratch.string());
+    const bool cleaned = orca::clean_system_profiles();
+    const orca::ProfilesOverview overview = orca::profiles_overview();
+    Slic3r::set_data_dir(engine_data_dir);
+    REQUIRE(cleaned);
+    CHECK(overview.system_cleaned);
+    // The folder stays while the engine runs on the presets it loaded from it.
+    CHECK(fs::exists(scratch / "system" / "Creality.json"));
+
+    // The next start removes it, and only that start.
+    orca::remove_cleaned_system_profiles(scratch.string());
+    CHECK_FALSE(fs::exists(scratch / "system"));
+    CHECK(fs::is_empty(scratch));
+    fs::create_directories(scratch / "system");
+    orca::remove_cleaned_system_profiles(scratch.string());
+    CHECK(fs::exists(scratch / "system"));
+    fs::remove_all(scratch);
+}
 
 TEST_CASE("A newer system bundle is cached, offered, installed and loaded as the profile updater does", "[Adapter][ProfileUpdates]")
 {

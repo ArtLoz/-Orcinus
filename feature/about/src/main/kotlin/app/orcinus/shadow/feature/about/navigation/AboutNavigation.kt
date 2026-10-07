@@ -7,16 +7,23 @@ import androidx.navigation3.runtime.NavKey
 import app.orcinus.shadow.core.model.AppInfo
 import app.orcinus.shadow.core.model.ComponentId
 import app.orcinus.shadow.core.model.LicenseId
+import app.orcinus.shadow.core.ui.navigation.overlayPageMetadata
 import app.orcinus.shadow.feature.about.AboutScreen
 import app.orcinus.shadow.feature.about.NoticeRoute
 import app.orcinus.shadow.feature.about.NoticeViewModel
 import app.orcinus.shadow.feature.about.ThirdPartyRoute
 import app.orcinus.shadow.feature.about.ThirdPartyViewModel
+import app.orcinus.shadow.feature.about.TroubleshootRoute
+import app.orcinus.shadow.feature.about.TroubleshootViewModel
 import kotlinx.serialization.Serializable
 
 /** The About page: version, license, source code, and credits. */
 @Serializable
 data object AboutNavKey : NavKey
+
+/** OrcaSlicer's Troubleshoot Center, which its Help menu opens beside About. */
+@Serializable
+data object TroubleshootNavKey : NavKey
 
 @Serializable
 internal data object ThirdPartyNavKey : NavKey
@@ -34,11 +41,14 @@ interface AboutViewModelFactory {
     fun componentNoticeViewModel(id: ComponentId): NoticeViewModel
 
     fun licenseNoticeViewModel(id: LicenseId): NoticeViewModel
+
+    fun troubleshootViewModel(): TroubleshootViewModel
 }
 
 /**
- * Registers the About page and the license pages it opens. [logo] draws the app
- * icon; [onNavigate] pushes a page and [onBack] closes the current one.
+ * Registers the About page, the license pages it opens, and the Troubleshoot
+ * Center. [logo] draws the app icon; [onNavigate] pushes a page and [onBack]
+ * closes the current one.
  */
 fun EntryProviderScope<NavKey>.aboutEntries(
     appInfo: AppInfo,
@@ -68,5 +78,9 @@ fun EntryProviderScope<NavKey>.aboutEntries(
     }
     entry<LicenseNavKey> { key ->
         NoticeRoute(viewModel = viewModel { viewModels.licenseNoticeViewModel(LicenseId(key.licenseId)) }, onBack = onBack)
+    }
+    // Over the workspace, as the Preferences: the dialog's No goes back to the project as it was.
+    entry<TroubleshootNavKey>(metadata = overlayPageMetadata) {
+        TroubleshootRoute(viewModel = viewModel { viewModels.troubleshootViewModel() }, logo = logo, onBack = onBack)
     }
 }

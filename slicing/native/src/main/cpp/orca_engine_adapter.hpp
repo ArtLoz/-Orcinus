@@ -1596,6 +1596,40 @@ bool perform_profile_updates();
 // (load_current_presets()).
 PresetState reload_system_presets();
 
+// OrcaSlicer's Troubleshoot Center (TroubleshootDialog): its Profiles section.
+
+// create_item_loaded_profiles()'s grid, Active / System + User of the
+// printers, filaments and processes, and GetProfilesOverview(), the JSON its
+// "Export..." writes; the JSON is empty while the engine is not ready.
+// system_cleaned: "Clean system profiles cache" was confirmed, and the
+// engine's next start removes the folder.
+struct ProfilesOverview {
+    std::string json;
+    std::int32_t printers_active{0};
+    std::int32_t printers_system{0};
+    std::int32_t printers_user{0};
+    std::int32_t filaments_active{0};
+    std::int32_t filaments_system{0};
+    std::int32_t filaments_user{0};
+    std::int32_t processes_active{0};
+    std::int32_t processes_system{0};
+    std::int32_t processes_user{0};
+    bool system_cleaned{false};
+};
+
+ProfilesOverview profiles_overview();
+
+// RebuildSystemProfiles(): the desktop app removes the system folder of the
+// data directory and starts again, which installs the bundles of the
+// resources anew. The engine keeps the presets it loaded from the folder
+// until it starts again, so the folder goes at that start; false when that
+// could not be arranged.
+bool clean_system_profiles();
+
+// initialize() before it installs the bundles: the system folder of data_dir
+// removed when clean_system_profiles() asked for it.
+void remove_cleaned_system_profiles(const std::string& data_dir);
+
 
 // Which settings the tabs show (ConfigOptionMode). The app configuration keeps
 // "user_mode"; with "developer_mode" the tabs show develop settings too.

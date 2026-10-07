@@ -10,6 +10,8 @@ data class AppInfo(
     val sourceUrl: String?,
     /** The license the app is distributed under. */
     val license: LicenseId,
+    /** The commit of OrcaSlicer that release is built from; null when unknown. */
+    val orcaCommit: String? = null,
 )
 
 @JvmInline

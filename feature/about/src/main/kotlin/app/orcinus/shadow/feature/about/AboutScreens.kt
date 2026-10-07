@@ -182,7 +182,7 @@ internal fun NoticeScreen(state: NoticeUiState, onBack: () -> Unit) {
 
 /** A page over the workspace: the title bar and a scrolling column that stays readable in a wide window. */
 @Composable
-private fun AboutPage(
+internal fun AboutPage(
     title: String,
     onBack: () -> Unit,
     content: LazyListScope.() -> Unit,
@@ -208,10 +208,10 @@ private fun AboutPage(
     }
 }
 
-private fun Modifier.pageContent() = widthIn(max = 720.dp).fillMaxWidth()
+internal fun Modifier.pageContent() = widthIn(max = 720.dp).fillMaxWidth()
 
 @Composable
-private fun SectionTitle(text: String) {
+internal fun SectionTitle(text: String) {
     Text(
         text = text,
         color = OrcaTheme.colors.text,
@@ -224,7 +224,7 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun BodyText(
+internal fun BodyText(
     text: String,
     modifier: Modifier = Modifier,
     secondary: Boolean = false,
@@ -241,7 +241,7 @@ private fun BodyText(
 }
 
 @Composable
-private fun Loading() {
+internal fun Loading() {
     Box(
         Modifier
             .fillMaxWidth()

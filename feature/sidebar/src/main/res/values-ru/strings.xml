@@ -35,4 +35,6 @@
     <string name="engine_ready">Ядро %1$s</string>
     <string name="engine_unavailable">Ядро OrcaSlicer недоступно</string>
     <string name="about">О программе</string>
+    <!-- Help's "Troubleshoot Center", untranslated in OrcaSlicer's Russian catalogue. -->
+    <string name="troubleshoot">Центр устранения неполадок</string>
 </resources>

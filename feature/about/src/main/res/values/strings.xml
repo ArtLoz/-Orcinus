@@ -23,4 +23,29 @@
     <string name="notice_missing">No notice found</string>
     <string name="component_version">Version %1$s</string>
     <string name="license_link_only">Full license text: %1$s</string>
+
+    <!-- TroubleshootDialog: OrcaSlicer's texts, which its catalogue lacks or leaves untranslated in Russian. -->
+    <string name="troubleshoot_title">Troubleshoot Center</string>
+    <string name="troubleshoot_info_needed">We need information for diagnosing source of the issue. Check wiki page for detailed guide.</string>
+    <string name="troubleshoot_info_pack">Pack button collects project file and logs of current session onto a zip file.</string>
+    <string name="troubleshoot_info_examples">Any additional visual examples like images or screen recordings might be helpful while reporting the issue.</string>
+    <string name="troubleshoot_report_issue">Report issue</string>
+    <string name="troubleshoot_pack">Pack</string>
+    <string name="troubleshoot_profiles">Profiles</string>
+    <string name="troubleshoot_clean_system">Clean system profiles cache</string>
+    <string name="troubleshoot_clean_system_tip">Cleans and rebuilds system profiles cache on next launch</string>
+    <string name="troubleshoot_clean">Clean</string>
+    <string name="troubleshoot_loaded_profiles">Loaded profiles overview</string>
+    <string name="troubleshoot_loaded_profiles_tip">Exports detailed overview of loaded profiles in json format</string>
+    <string name="troubleshoot_active">Active</string>
+    <string name="troubleshoot_printers">Printers</string>
+    <string name="troubleshoot_processes">Processes</string>
+    <string name="troubleshoot_log_level">Log level</string>
+    <string name="troubleshoot_review_project">Select NO to close dialog and review project</string>
+    <string name="troubleshoot_no_project">No project file on current session. Only logs will be included to package</string>
+    <string name="troubleshoot_export_failed">Export failed\nPlease check write permissions or file in use by another application</string>
+    <string name="troubleshoot_clean_failed">Failed to delete system folder...</string>
+    <!-- RebuildSystemProfiles() restarts the desktop app at once; the app cleans the cache when it starts next. -->
+    <string name="troubleshoot_clean_next_start">The cache is cleaned and rebuilt the next time the app starts.</string>
+    <string name="troubleshoot_clean_pending">Cleaned the next time the app starts</string>
 </resources>

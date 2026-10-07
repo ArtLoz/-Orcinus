@@ -78,6 +78,8 @@ import app.orcinus.shadow.slicing.api.PresetManager
 import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import app.orcinus.shadow.slicing.api.ProfileUpdater
 import app.orcinus.shadow.slicing.api.SlicerEngine
+import app.orcinus.shadow.slicing.api.Troubleshooting
+import app.orcinus.shadow.slicing.api.bridgeValues
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -97,7 +99,7 @@ import kotlinx.coroutines.runBlocking
  * itself when the job ends.
  */
 abstract class SlicerService<E> : Service()
-    where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor, E : AppConfigStore, E : LayerHeightEditor, E : EmbossEditor, E : PlateMeasurer, E : BrimEarsEditor, E : ProfileUpdater {
+    where E : SlicerEngine, E : PlateInspector, E : PresetManager, E : PresetSettingsEditor, E : AppConfigStore, E : LayerHeightEditor, E : EmbossEditor, E : PlateMeasurer, E : BrimEarsEditor, E : ProfileUpdater, E : Troubleshooting {
     private val engine: E by lazy { createEngine() }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val jobLock = Any()
@@ -1163,6 +1165,10 @@ abstract class SlicerService<E> : Service()
         override fun finishFilamentEdit() = runBlocking { engine.finishFilamentEdit() }
 
         override fun takeConfigCorrupted(): Boolean = runBlocking { engine.takeConfigCorrupted() }
+
+        override fun profilesOverview(): Array<String> = runBlocking { engine.profilesOverview()?.bridgeValues().orEmpty().toTypedArray() }
+
+        override fun cleanSystemProfiles(): Boolean = runBlocking { engine.cleanSystemProfiles() }
 
         override fun selectFilament(index: Int, name: String, action: String): PresetsParcel =
             runBlocking { engine.selectFilament(index, ProfileId(name), PresetChangeAction.valueOf(action)) }.toParcel()

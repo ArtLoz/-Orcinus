@@ -85,7 +85,7 @@ internal sealed interface PreferenceItem {
 }
 
 /** get_string_logging_level() of libslic3r, in its order; declared before the pages, which use it. */
-private val LOG_LEVELS = listOf("fatal", "error", "warning", "info", "debug", "trace")
+private val LOG_LEVELS = AppConfigKeys.LOG_SEVERITY_LEVELS
 
 /** A group of items under create_item_title(). */
 internal data class PreferenceSection(val title: String, val items: List<PreferenceItem>)

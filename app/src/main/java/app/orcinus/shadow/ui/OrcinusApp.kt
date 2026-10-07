@@ -92,6 +92,7 @@ import app.orcinus.shadow.domain.plate.SliceActionUseCase
 import app.orcinus.shadow.domain.plate.StartEngineUseCase
 import app.orcinus.shadow.domain.plate.StepMeshPrompt
 import app.orcinus.shadow.feature.about.navigation.AboutNavKey
+import app.orcinus.shadow.feature.about.navigation.TroubleshootNavKey
 import app.orcinus.shadow.feature.about.navigation.aboutEntries
 import app.orcinus.shadow.feature.device.navigation.DeviceNavKey
 import app.orcinus.shadow.feature.device.navigation.deviceEntry
@@ -289,6 +290,7 @@ fun OrcinusApp(
                     },
                     onOpenAbout = { backStack.add(AboutNavKey) },
                     onOpenPreferences = { backStack.add(PreferencesNavKey) },
+                    onOpenTroubleshoot = { backStack.add(TroubleshootNavKey) },
                 )
             }
             setupEntry(
@@ -341,6 +343,7 @@ private fun Workspace(
     onOpenSetting: (SearchOption) -> Unit,
     onOpenAbout: () -> Unit,
     onOpenPreferences: () -> Unit,
+    onOpenTroubleshoot: () -> Unit,
 ) {
     val plate by shell.plate.collectAsStateWithLifecycle()
     // GUI_App::on_init_inner() selects the Home tab first (MainFrame::tpHome).
@@ -595,6 +598,10 @@ private fun Workspace(
                 onOpenPreferences = {
                     if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
                     onOpenPreferences()
+                },
+                onOpenTroubleshoot = {
+                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    onOpenTroubleshoot()
                 },
                 onShowCanvas = {
                     if (layout == OrcaWindowLayout.Compact) sidebarVisible = false

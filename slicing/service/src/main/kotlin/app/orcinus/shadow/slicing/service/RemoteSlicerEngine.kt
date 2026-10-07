@@ -103,6 +103,7 @@ import app.orcinus.shadow.core.model.ProfileDownload
 import app.orcinus.shadow.core.model.ProfileId
 import app.orcinus.shadow.core.model.ProfileUpdate
 import app.orcinus.shadow.core.model.ProfileUpdateRequest
+import app.orcinus.shadow.core.model.ProfilesOverview
 import app.orcinus.shadow.core.model.ProjectPlate
 import app.orcinus.shadow.core.model.ProjectSaveOutcome
 import app.orcinus.shadow.core.model.ScenePath
@@ -152,6 +153,8 @@ import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import app.orcinus.shadow.slicing.api.ProfileUpdater
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
+import app.orcinus.shadow.slicing.api.Troubleshooting
+import app.orcinus.shadow.slicing.api.profilesOverviewOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -170,7 +173,7 @@ import kotlinx.coroutines.withContext
 class RemoteSlicerEngine(
     context: Context,
     private val serviceClass: Class<out SlicerService<*>>,
-) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore, LayerHeightEditor, EmbossEditor, PlateMeasurer, BrimEarsEditor, ProfileUpdater {
+) : SlicerEngine, PlateInspector, PresetManager, PresetSettingsEditor, AppConfigStore, LayerHeightEditor, EmbossEditor, PlateMeasurer, BrimEarsEditor, ProfileUpdater, Troubleshooting {
     private val applicationContext = context.applicationContext
     private val lock = Any()
 
@@ -1355,6 +1358,10 @@ class RemoteSlicerEngine(
     }
 
     override suspend fun takeConfigCorrupted(): Boolean = remote({ false }) { takeConfigCorrupted() }
+
+    override suspend fun profilesOverview(): ProfilesOverview? = remote({ null }) { profilesOverviewOf(profilesOverview().toList()) }
+
+    override suspend fun cleanSystemProfiles(): Boolean = remote({ false }) { cleanSystemProfiles() }
 
     override suspend fun selectFilament(index: Int, name: ProfileId, action: PresetChangeAction): PresetsOutcome =
         remote(PresetsOutcome::Failure) { selectFilament(index, name.value, action.name).toPresetsOutcome() }

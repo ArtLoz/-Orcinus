@@ -2306,6 +2306,16 @@ internal object NativeBindings {
     /** take_config_corrupted(): OrcaSlicer.conf was made anew at start-up; true once. */
     external fun takeConfigCorrupted(): Boolean
 
+    /**
+     * profiles_overview(): the JSON, whether the system profiles were cleaned
+     * ("1" or empty), then Active, System and User of the printers, filaments
+     * and processes; empty while the engine is not ready.
+     */
+    external fun profilesOverview(): Array<String>
+
+    /** clean_system_profiles() */
+    external fun cleanSystemProfiles(): Boolean
+
     external fun describeSetupPrinters(): NativeSetupPrinters
 
     /** For the printer model ids [models]. */

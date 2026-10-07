@@ -484,6 +484,14 @@ interface ISlicerService {
     /** take_config_corrupted(): OrcaSlicer.conf was made anew at start-up; true once. */
     boolean takeConfigCorrupted();
     /**
+     * profiles_overview(): the JSON, whether the system profiles were cleaned
+     * ("1" or empty), then Active, System and User of the printers, filaments
+     * and processes; empty while the engine is not ready.
+     */
+    String[] profilesOverview();
+    /** clean_system_profiles() */
+    boolean cleanSystemProfiles();
+    /**
      * The Setup Wizard's data comes in two calls, since every filament of every
      * printer model together would exceed the binder transaction limit.
      */

@@ -1120,6 +1120,37 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_takeConfigCorrupted(
     return orcinus::orca::take_config_corrupted() ? JNI_TRUE : JNI_FALSE;
 }
 
+// profiles_overview(): the JSON, whether the system profiles were cleaned
+// ("1" or empty), then Active, System and User of the printers, filaments and
+// processes; none while the engine is not ready.
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_profilesOverview(JNIEnv* env, jobject /* this */)
+{
+    const orcinus::orca::ProfilesOverview overview = orcinus::orca::profiles_overview();
+    if (overview.json.empty()) {
+        return to_java(env, std::vector<std::string>{});
+    }
+    return to_java(env, std::vector<std::string>{
+        overview.json,
+        overview.system_cleaned ? "1" : "",
+        std::to_string(overview.printers_active),
+        std::to_string(overview.printers_system),
+        std::to_string(overview.printers_user),
+        std::to_string(overview.filaments_active),
+        std::to_string(overview.filaments_system),
+        std::to_string(overview.filaments_user),
+        std::to_string(overview.processes_active),
+        std::to_string(overview.processes_system),
+        std::to_string(overview.processes_user),
+    });
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_cleanSystemProfiles(JNIEnv* /* env */, jobject /* this */)
+{
+    return orcinus::orca::clean_system_profiles() ? JNI_TRUE : JNI_FALSE;
+}
+
 // The codes on the layers: one entry per code in every array.
 static std::vector<orcinus::orca::LayerGcode> to_layer_gcodes(
     JNIEnv* env,

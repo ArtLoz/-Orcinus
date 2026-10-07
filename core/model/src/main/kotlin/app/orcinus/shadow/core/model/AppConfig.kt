@@ -130,6 +130,9 @@ object AppConfigKeys {
     const val DEVELOPER_MODE = "developer_mode"
     const val KEEP_PAINTING = "keep_painting"
     const val LOG_SEVERITY_LEVEL = "log_severity_level"
+
+    /** get_string_logging_level() of libslic3r, in its order: the values of [LOG_SEVERITY_LEVEL]. */
+    val LOG_SEVERITY_LEVELS = listOf("fatal", "error", "warning", "info", "debug", "trace")
     const val PROJECT_LOAD_BEHAVIOUR = "project_load_behaviour"
     const val GROUP_FILAMENT_PRESETS = "group_filament_presets"
     const val SHOW_UNSUPPORTED_PRESETS = "show_unsupported_presets"

@@ -35,4 +35,6 @@
     <string name="engine_ready">Engine %1$s</string>
     <string name="engine_unavailable">The OrcaSlicer engine is unavailable</string>
     <string name="about">About</string>
+    <!-- Help's "Troubleshoot Center", untranslated in OrcaSlicer's Russian catalogue. -->
+    <string name="troubleshoot">Troubleshoot Center</string>
 </resources>

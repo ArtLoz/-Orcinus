@@ -1784,6 +1784,8 @@ fun PlateSidebar(
     onOpenAbout: () -> Unit,
     /** OrcaSlicer's Preferences, which its top menu opens. */
     onOpenPreferences: () -> Unit = {},
+    /** The Troubleshoot Center of OrcaSlicer's Help menu (GUI_App::troubleshoot()). */
+    onOpenTroubleshoot: () -> Unit = {},
     /** A tool of the canvas opened from the sidebar: a drawer over the canvas gets out of its way. */
     onShowCanvas: () -> Unit = {},
     /** A calibration starts its project: the 3D view shows it (Plater::new_project selects tp3DEditor). */
@@ -2119,6 +2121,7 @@ fun PlateSidebar(
         searchCatalog = viewModel::searchCatalog,
         onOpenAbout = onOpenAbout,
         onOpenPreferences = onOpenPreferences,
+        onOpenTroubleshoot = onOpenTroubleshoot,
         onOpenPresetBundles = { presetBundlesOpen = true },
         autoArrange = canvas.autoArrange,
         onImportConfig = { configPicker.launch(arrayOf("*/*")) },
@@ -2262,6 +2265,7 @@ internal fun PlateSidebarContent(
     searchCatalog: suspend () -> SearchCatalogOutcome = { SearchCatalogOutcome.Failure("") },
     onOpenAbout: () -> Unit,
     onOpenPreferences: () -> Unit = {},
+    onOpenTroubleshoot: () -> Unit = {},
     /** The top menu's Preset Bundle. */
     onOpenPresetBundles: () -> Unit = {},
     /** The Preferences' "Auto arrange plate after cloning", which the clone dialog starts with. */
@@ -2609,6 +2613,8 @@ internal fun PlateSidebarContent(
         SidebarAction(DesignR.drawable.orca_cog, orcaString("Preferences"), onOpenPreferences)
         // Its Preset Bundle, after Preferences (MainFrame's top menu).
         SidebarAction(DesignR.drawable.orca_menu_edit_preset, orcaString("Preset Bundle"), onOpenPresetBundles)
+        // Help's "Troubleshoot Center", before its "Show Tip of the Day" (generate_help_menu()).
+        SidebarAction(DesignR.drawable.orca_help, stringResource(R.string.troubleshoot), onOpenTroubleshoot)
         // Help's "Show Tip of the Day" (DailyTipsWindow::open()).
         SidebarAction(DesignR.drawable.orca_help, orcaString("Show Tip of the Day")) { showingTips = true }
         SidebarAction(DesignR.drawable.orca_help, stringResource(R.string.about), onOpenAbout)

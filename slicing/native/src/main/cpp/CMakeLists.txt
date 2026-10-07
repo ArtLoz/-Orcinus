@@ -39,6 +39,7 @@ add_library(orca_engine_adapter STATIC
     tab_print_model.cpp
     tab_printer.cpp
     translations.cpp
+    troubleshoot.cpp
     wipe_tower.cpp
     # libvgcode::convert() from GCodeProcessorResult, as the desktop preview loads G-code.
     "${LIBDIR}/slic3r/GUI/LibVGCode/LibVGCodeWrapper.cpp"

@@ -54,6 +54,7 @@ import app.orcinus.shadow.core.model.ProfileCheckAnswer
 import app.orcinus.shadow.core.model.ProfileDownload
 import app.orcinus.shadow.core.model.ProfileUpdate
 import app.orcinus.shadow.core.model.ProfileUpdateRequest
+import app.orcinus.shadow.core.model.ProfilesOverview
 import app.orcinus.shadow.core.model.SelectedCopy
 import app.orcinus.shadow.core.model.SliceNotice
 import app.orcinus.shadow.core.model.SliceNoticeLevel
@@ -216,6 +217,8 @@ import app.orcinus.shadow.slicing.api.PresetSettingsEditor
 import app.orcinus.shadow.slicing.api.ProfileUpdater
 import app.orcinus.shadow.slicing.api.SliceProgressListener
 import app.orcinus.shadow.slicing.api.SlicerEngine
+import app.orcinus.shadow.slicing.api.Troubleshooting
+import app.orcinus.shadow.slicing.api.profilesOverviewOf
 import java.io.File
 import java.io.FileNotFoundException
 import kotlinx.coroutines.CancellationException
@@ -237,7 +240,8 @@ class NativeSlicerEngine(context: Context) :
     EmbossEditor,
     PlateMeasurer,
     BrimEarsEditor,
-    ProfileUpdater {
+    ProfileUpdater,
+    Troubleshooting {
     private val applicationContext = context.applicationContext
     private val statusLock = Mutex()
     private var status: EngineStatus? = null
@@ -2462,6 +2466,10 @@ class NativeSlicerEngine(context: Context) :
     }
 
     override suspend fun takeConfigCorrupted(): Boolean = whenReady({ false }) { NativeBindings.takeConfigCorrupted() }
+
+    override suspend fun profilesOverview(): ProfilesOverview? = whenReady({ null }) { profilesOverviewOf(NativeBindings.profilesOverview().toList()) }
+
+    override suspend fun cleanSystemProfiles(): Boolean = whenReady({ false }) { NativeBindings.cleanSystemProfiles() }
 
     override suspend fun setFilamentColor(index: Int, color: String): PresetsOutcome = whenReady(PresetsOutcome::Failure) {
         NativeBindings.setFilamentColor(index.toLong(), color).toOutcome()

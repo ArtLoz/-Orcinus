@@ -1691,6 +1691,8 @@ EngineInitialization initialize(const EngineDirectories& directories)
         }
         // GUI_App::init_app_config(): the log level of the Preferences.
         Slic3r::set_logging_level(Slic3r::level_string_to_boost(config->get("log_severity_level")));
+        // The Troubleshoot Center's "Clean system profiles cache", which the bundles below install anew.
+        remove_cleaned_system_profiles(directories.data_dir);
         const std::size_t vendor_bundles = install_vendor_bundles(*config);
 
         // GUI_App::load_language(): a modified preset's label starts with the

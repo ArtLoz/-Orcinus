@@ -43,6 +43,7 @@ import app.orcinus.shadow.domain.SliceModelUseCase
 import app.orcinus.shadow.domain.about.GetLicenseUseCase
 import app.orcinus.shadow.domain.about.GetThirdPartyComponentUseCase
 import app.orcinus.shadow.domain.about.GetThirdPartyComponentsUseCase
+import app.orcinus.shadow.domain.about.TroubleshootUseCase
 import app.orcinus.shadow.domain.plate.AddCalibrationCubeToPlateUseCase
 import app.orcinus.shadow.domain.plate.AddLayerRangeUseCase
 import app.orcinus.shadow.domain.plate.AddModelToPlateUseCase
@@ -198,6 +199,7 @@ import app.orcinus.shadow.domain.preferences.RecentSendChoicesUseCase
 import app.orcinus.shadow.domain.preferences.SetPreferenceUseCase
 import app.orcinus.shadow.feature.about.NoticeViewModel
 import app.orcinus.shadow.feature.about.ThirdPartyViewModel
+import app.orcinus.shadow.feature.about.TroubleshootViewModel
 import app.orcinus.shadow.feature.about.navigation.AboutViewModelFactory
 import app.orcinus.shadow.feature.device.DeviceViewModel
 import app.orcinus.shadow.feature.home.HomeViewModel
@@ -691,6 +693,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         orcaRelease = BuildConfig.ORCA_RELEASE,
         sourceUrl = BuildConfig.SOURCE_URL.ifBlank { null },
         license = LicenseId(BuildConfig.LICENSE_ID),
+        orcaCommit = BuildConfig.ORCA_COMMIT.ifBlank { null },
     )
 
     // Generated at build time by the AboutLibraries plugin (see app/build.gradle.kts).
@@ -953,4 +956,18 @@ class AppContainer(context: Context) : AboutViewModelFactory {
     override fun componentNoticeViewModel(id: ComponentId) = NoticeViewModel.forComponent(id, GetThirdPartyComponentUseCase(noticeCatalog))
 
     override fun licenseNoticeViewModel(id: LicenseId) = NoticeViewModel.forLicense(id, GetLicenseUseCase(noticeCatalog))
+
+    // GUI_App::troubleshoot(): the Troubleshoot Center of the Help menu.
+    private val troubleshoot by lazy {
+        TroubleshootUseCase(
+            appInfo,
+            AppDeviceInformation(applicationContext),
+            engine,
+            AppTroubleshootFiles(applicationContext),
+            plateRepository,
+            saveProject::save,
+        )
+    }
+
+    override fun troubleshootViewModel() = TroubleshootViewModel(troubleshoot, appPreferences, setPreference)
 }
