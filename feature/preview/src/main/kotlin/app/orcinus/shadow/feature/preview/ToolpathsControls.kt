@@ -94,6 +94,14 @@ internal fun ToolpathsControls(
     val density = LocalDensity.current
     val windowed = gcodeWindow != null || positionWindow != null
     val windowSpace = if (windowed) windowsHeight + ControlsMargin else 0.dp
+    // The windows stand in the middle; the layer slider and the legend keep above them only where they reach under them.
+    var areaWidth by remember { mutableStateOf(0.dp) }
+    var windowsWidth by remember { mutableStateOf(0.dp) }
+    var sliderWidth by remember { mutableStateOf(0.dp) }
+    var legendWidth by remember { mutableStateOf(0.dp) }
+    val windowsStart = (areaWidth - windowsWidth) / 2
+    val sliderSpace = if (windowsStart + windowsWidth + ControlsMargin > areaWidth - sliderWidth) windowSpace else 0.dp
+    val legendSpace = if (legendWidth + ControlsMargin > windowsStart) windowSpace else 0.dp
     val windowsBottom = bottomInset + MovePlayerHeight + ControlsMargin * 2
     var oneLayer by rememberSaveable { mutableStateOf(false) }
     // The layer whose menu is open (and whether by the lower handle), the layer whose G-code is being edited, and the jump dialog.
@@ -205,7 +213,7 @@ internal fun ToolpathsControls(
         true
     }
 
-    Box(modifier) {
+    Box(modifier.onSizeChanged { areaWidth = with(density) { it.width.toDp() } }) {
         if (view.layerZs.isNotEmpty()) {
             OrcaLayerRangeSlider(
                 layerCount = view.layerZs.size,
@@ -232,22 +240,26 @@ internal fun ToolpathsControls(
                 onSelectionChange = { lowerSelected = it },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = ControlsMargin + topInset, end = ControlsMargin - 4.dp, bottom = bottomInset + MovePlayerHeight + ControlsMargin * 2 + windowSpace)
+                    .onSizeChanged { sliderWidth = with(density) { it.width.toDp() } }
+                    .padding(top = ControlsMargin + topInset, end = ControlsMargin - 4.dp, bottom = bottomInset + MovePlayerHeight + ControlsMargin * 2 + sliderSpace)
                     .fillMaxHeight(),
             )
         }
         legend?.invoke(
             Modifier
                 .align(Alignment.TopStart)
-                .padding(start = ControlsMargin, top = legendTop, bottom = bottomInset + MovePlayerHeight + ControlsMargin * 2 + windowSpace),
+                .onSizeChanged { legendWidth = with(density) { it.width.toDp() } }
+                .padding(start = ControlsMargin, top = legendTop, bottom = bottomInset + MovePlayerHeight + ControlsMargin * 2 + legendSpace),
         )
         if (windowed) {
             Column(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
+                    .align(Alignment.BottomCenter)
                     .padding(start = ControlsMargin, end = ControlsMargin, bottom = windowsBottom)
-                    .fillMaxWidth()
-                    .onSizeChanged { windowsHeight = with(density) { it.height.toDp() } },
+                    .onSizeChanged {
+                        windowsWidth = with(density) { it.width.toDp() }
+                        windowsHeight = with(density) { it.height.toDp() }
+                    },
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
