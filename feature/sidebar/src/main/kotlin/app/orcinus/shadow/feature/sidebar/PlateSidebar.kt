@@ -130,6 +130,7 @@ import app.orcinus.shadow.core.model.CreatePrinterOptionsOutcome
 import app.orcinus.shadow.core.model.CreatePrinterRequest
 import app.orcinus.shadow.core.model.CloudLoginOutcome
 import app.orcinus.shadow.core.model.CrealityHost
+import app.orcinus.shadow.core.model.DialogIcon
 import app.orcinus.shadow.core.model.FlashforgeDiscoveryOutcome
 import app.orcinus.shadow.core.model.HostPrintersOutcome
 import app.orcinus.shadow.core.model.EngineAvailability
@@ -211,6 +212,7 @@ import app.orcinus.shadow.core.ui.settings.PresetComparisonActions
 import app.orcinus.shadow.core.ui.settings.SettingColorDialog
 import app.orcinus.shadow.core.ui.settings.SettingsActions
 import app.orcinus.shadow.core.ui.settings.SettingsModeSwitch
+import app.orcinus.shadow.core.ui.settings.SettingsNoticeDialog
 import app.orcinus.shadow.core.ui.settings.SettingsPresetButtons
 import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
 import app.orcinus.shadow.core.ui.settings.SettingsSearchSheet
@@ -1791,6 +1793,8 @@ fun PlateSidebar(
     onShowCanvas: () -> Unit = {},
     /** A calibration starts its project: the 3D view shows it (Plater::new_project selects tp3DEditor). */
     onShowPrepare: () -> Unit = {},
+    /** Plater::PopupObjectTable(): the Parameter Table, on the row of the item or on none. */
+    onOpenObjectTable: (SettingsItem?) -> Unit = {},
 ) {
     val viewModel = viewModel { createViewModel() }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -2042,6 +2046,7 @@ fun PlateSidebar(
             toggleFlushOption = viewModel::toggleFlushOption,
             editProcessSettings = viewModel::editProcessSettings,
             copyProcessSettings = viewModel::copyProcessSettings,
+            editInParameterTable = onOpenObjectTable,
             copyRange = viewModel::copyRange,
             canMoveObject = viewModel::canMoveObject,
             moveObject = viewModel::moveObject,
@@ -2124,6 +2129,7 @@ fun PlateSidebar(
         onOpenPreferences = onOpenPreferences,
         onOpenTroubleshoot = onOpenTroubleshoot,
         onOpenPresetBundles = { presetBundlesOpen = true },
+        onOpenObjectTable = onOpenObjectTable,
         autoArrange = canvas.autoArrange,
         onImportConfig = { configPicker.launch(arrayOf("*/*")) },
         onExportConfig = { exporting = true },
@@ -2269,6 +2275,8 @@ internal fun PlateSidebarContent(
     onOpenTroubleshoot: () -> Unit = {},
     /** The top menu's Preset Bundle. */
     onOpenPresetBundles: () -> Unit = {},
+    /** ParamsPanel's table button and the object menus: the Parameter Table, on the row of the item or on none. */
+    onOpenObjectTable: (SettingsItem?) -> Unit = {},
     /** The Preferences' "Auto arrange plate after cloning", which the clone dialog starts with. */
     autoArrange: Boolean = true,
     onImportConfig: () -> Unit,
@@ -2283,6 +2291,8 @@ internal fun PlateSidebarContent(
 ) {
     // DiffPresetDialog, which the compare button of the process panel opens.
     var comparing by rememberSaveable { mutableStateOf(false) }
+    // Plater::PopupObjectTable()'s "Not available" of a printer with several extruders.
+    var tableUnavailable by rememberSaveable { mutableStateOf(false) }
     var showingTips by rememberSaveable { mutableStateOf(false) }
     // Search::SearchDialog, which the search button of the panel opens.
     var searching by rememberSaveable { mutableStateOf(false) }
@@ -2514,6 +2524,15 @@ internal fun PlateSidebarContent(
         OrcaSidebarTitle(stringResource(R.string.section_process), DesignR.drawable.orca_process) {
             val shown = if (global) process else state.modelSettings
             shown.settings?.let { SettingsModeSwitch(shown.kind, it, enabled, settings) }
+            // ParamsPanel's table button (m_setting_btn) after the mode switch:
+            // Plater::PopupObjectTable() with no row, which a printer of several
+            // extruders (one min_layer_height each) does not offer.
+            OrcaIconButton(
+                icon = DesignR.drawable.orca_table,
+                contentDescription = orcaString("View all object's settings"),
+                onClick = { if ((presets?.minLayerHeights?.size ?: 0) > 1) tableUnavailable = true else onOpenObjectTable(null) },
+                enabled = enabled,
+            )
             // The search button of the tab (Tab::m_btn_search), which finds a
             // setting and opens its page.
             OrcaIconButton(
@@ -2636,6 +2655,22 @@ internal fun PlateSidebarContent(
 
     if (comparing) {
         DiffPresetDialog(comparison, onDismiss = { comparing = false })
+    }
+
+    if (tableUnavailable) {
+        // Plater::PopupObjectTable(): MessageDialog(..., _L("Not available"), wxOK | wxICON_WARNING).
+        SettingsNoticeDialog(
+            SettingsDialog(
+                id = "object_table_multi_extruder",
+                icon = DialogIcon.WARNING,
+                title = listOf(OrcaText("Not available")),
+                text = listOf(OrcaText("Currently, the object configuration form cannot be used with a multiple-extruder printer.")),
+                question = false,
+                yes = null,
+                no = null,
+            ),
+            onDismiss = { tableUnavailable = false },
+        )
     }
 
     if (openNetworkPrinters) {

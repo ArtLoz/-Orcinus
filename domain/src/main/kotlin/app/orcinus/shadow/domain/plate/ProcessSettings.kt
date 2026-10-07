@@ -168,7 +168,7 @@ internal fun PlateObject.settingsOf(item: SettingsItem): ModelSettings? = when (
     is SettingsItem.Layer -> layerRanges.getOrNull(item.id.index)?.settings
 }
 
-private fun PlateObject.withSettingsOf(item: SettingsItem, settings: ModelSettings): PlateObject = when (item) {
+internal fun PlateObject.withSettingsOf(item: SettingsItem, settings: ModelSettings): PlateObject = when (item) {
     is SettingsItem.Object -> withSettings(settings)
     is SettingsItem.Volume -> volumeAt(item.id.index)?.let { withVolumeAt(item.id.index, it.copy(settings = settings)) } ?: this
     is SettingsItem.Layer -> layerRanges.getOrNull(item.id.index)?.let { withLayerRangeAt(item.id.index, it.copy(settings = settings)) } ?: this

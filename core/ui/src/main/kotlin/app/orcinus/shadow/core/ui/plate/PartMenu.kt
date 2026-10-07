@@ -116,6 +116,8 @@ class PartMenuActions(
     val replace: () -> Unit,
     /** ObjectList::set_extruder_for_selected_items(): the filament, 1-based; 0 for the object's. */
     val setFilament: (Int) -> Unit,
+    /** append_menu_item_per_object_settings(): the Parameter Table opens on the volume's row; null for none. */
+    val editInParameterTable: (() -> Unit)? = null,
 )
 
 /**
@@ -205,6 +207,10 @@ fun PartMenuItems(state: PartMenuState, actions: PartMenuActions, dismiss: () ->
             },
         )
     }
+    // part_menu(), text_part_menu() and svg_part_menu() append it last; it
+    // takes Selection::is_single_volume(), a part of the model alone, as any
+    // other volume selected alone is is_single_modifier().
+    actions.editInParameterTable?.let { ParameterTableItem(enabled = enabled && state.type == VolumeType.PART, onClick = run(it)) }
 }
 
 /** The types "Change type" offers, with their texts (MenuFactory::append_menu_item_change_type). */

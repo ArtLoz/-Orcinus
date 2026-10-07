@@ -196,6 +196,8 @@ internal class ObjectListActions(
     /** switch_to_object_process(), copy_settings_to_clipboard() and paste_settings_into_list() of an item. */
     val editProcessSettings: (SettingsItem) -> Unit = {},
     val copyProcessSettings: (SettingsItem) -> Unit = {},
+    /** "Edit in Parameter Table" of an item (Plater::PopupObjectTableBySelection): the table opens on its row. */
+    val editInParameterTable: (SettingsItem) -> Unit = {},
     /** ObjectList::can_drop() of an object onto another, and ObjectList::OnDrop() of an object and of a volume. */
     val canMoveObject: (from: ScenePath, to: ScenePath) -> Boolean = { _, _ -> false },
     val moveObject: (from: ScenePath, to: ScenePath) -> Unit = { _, _ -> },
@@ -641,6 +643,7 @@ private fun LazyListScope.objectRows(
                                 reloadFromDisk = { actions.reloadFromDisk(mesh, at) },
                                 replace = { actions.replaceVolume(first, at) },
                                 setFilament = { actions.setPartExtruder(partId, it) },
+                                editInParameterTable = { actions.editInParameterTable(item) },
                             ),
                             dismiss,
                         )
@@ -935,6 +938,7 @@ private fun ObjectListActions.menuOf(
     invalidateCutInfo = invalidateCutInfo,
     editText = editText,
     editSvg = editSvg,
+    editInParameterTable = { editInParameterTable(SettingsItem.Object(id.mesh)) },
 )
 
 /**

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Parameter Table's own wording; OrcaSlicer's texts come from its catalogue. -->
+<resources>
+    <string name="object_table_back">Back</string>
+    <string name="object_table_row_settings">Settings of the selected object or part</string>
+    <string name="object_table_pick_cell">Tap a cell to see the settings of its object or part here.</string>
+    <string name="object_table_sort">Sort by %1$s</string>
+</resources>

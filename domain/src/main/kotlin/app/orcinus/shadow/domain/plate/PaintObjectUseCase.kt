@@ -215,5 +215,5 @@ fun PlateState.supportThresholdAngle(target: PlateObject): Int {
 }
 
 /** The volume's or object's "extruder" setting; 0 takes it off. */
-private fun ModelSettings.withExtruder(extruder: Int): ModelSettings =
+internal fun ModelSettings.withExtruder(extruder: Int): ModelSettings =
     ModelSettings(if (extruder <= 0) values - "extruder" else values + ("extruder" to extruder.toString()))

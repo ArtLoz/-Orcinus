@@ -149,6 +149,7 @@ import app.orcinus.shadow.core.model.PlateSlicing
 import app.orcinus.shadow.core.model.ProfileUpdate
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SearchOption
+import app.orcinus.shadow.core.model.SettingsItem
 import app.orcinus.shadow.core.model.SliceJobId
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.SliceProgress
@@ -240,6 +241,8 @@ internal fun PrepareRoute(
     onOpenSidebar: () -> Unit = {},
     /** A setting a validation notification jumps to opens on its tab's page. */
     onOpenSetting: (SearchOption) -> Unit = {},
+    /** The object menus' "Edit in Parameter Table" (Plater::PopupObjectTableBySelection). */
+    onOpenObjectTable: (SettingsItem?) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(viewModel) { viewModel.settingToOpen.collect(onOpenSetting) }
@@ -486,6 +489,7 @@ internal fun PrepareRoute(
                     setFilament = viewModel::setSelectedFilament,
                 )
             },
+            openParameterTable = onOpenObjectTable,
         ),
         onPaste = viewModel::paste,
         plateMenuActions = PlateMenuActions(
@@ -1521,6 +1525,8 @@ internal class PrepareObjectMenuActions(
     val part: PreparePartMenuActions? = null,
     /** The menu of several volumes of one object over the copy at the index of the scene, which the canvas picked them on. */
     val volumes: ((index: Int) -> VolumesMenuActions)? = null,
+    /** "Edit in Parameter Table" of the object and the part menus: the table opens on the item's row, or on none. */
+    val openParameterTable: (SettingsItem?) -> Unit = {},
 ) {
     companion object {
         val NONE = PrepareObjectMenuActions(
@@ -1780,6 +1786,7 @@ private fun ObjectContextMenu(
                     reloadFromDisk = { part.reloadFromDisk(volume) },
                     replace = { part.replace(index, at) },
                     setFilament = { part.setFilament(volume, it) },
+                    editInParameterTable = { actions.openParameterTable(SettingsItem.Volume(volume)) },
                 ),
                 onDismiss,
             )
@@ -1837,6 +1844,11 @@ private fun ObjectContextMenu(
                 editSvg = ObjectPartId(copy.id.mesh, 0)
                     .takeIf { copy.plateObject.parts.isEmpty() && copy.plateObject.volume.emboss?.kind == EmbossKind.SVG }
                     ?.let { volume -> { onEditSvg(volume) } },
+                // Plater::PopupObjectTableBySelection() of the object list's selection: the object's
+                // row, which a copy of several selected alone leaves to none (its instance item).
+                editInParameterTable = {
+                    actions.openParameterTable(SettingsItem.Object(copy.id.mesh).takeIf { copy.plateObject.instances.size == 1 })
+                },
             ),
             dismiss = onDismiss,
         )

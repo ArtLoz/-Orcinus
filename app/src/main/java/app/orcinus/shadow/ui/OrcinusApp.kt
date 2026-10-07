@@ -59,6 +59,7 @@ import app.orcinus.shadow.core.model.ProjectPrompt
 import app.orcinus.shadow.core.model.ReloadPrompt
 import app.orcinus.shadow.core.model.SearchOption
 import app.orcinus.shadow.core.model.SettingsDialog
+import app.orcinus.shadow.core.model.SettingsItem
 import app.orcinus.shadow.core.model.SliceMode
 import app.orcinus.shadow.core.model.StepMeshChoice
 import app.orcinus.shadow.core.ui.orca.orcaString
@@ -98,6 +99,8 @@ import app.orcinus.shadow.feature.device.navigation.DeviceNavKey
 import app.orcinus.shadow.feature.device.navigation.deviceEntry
 import app.orcinus.shadow.feature.home.navigation.HomeNavKey
 import app.orcinus.shadow.feature.home.navigation.homeEntry
+import app.orcinus.shadow.feature.objecttable.navigation.ObjectTableNavKey
+import app.orcinus.shadow.feature.objecttable.navigation.objectTableEntry
 import app.orcinus.shadow.feature.preferences.navigation.PreferencesNavKey
 import app.orcinus.shadow.feature.preferences.navigation.preferencesEntry
 import app.orcinus.shadow.feature.prepare.R as PrepareR
@@ -291,6 +294,7 @@ fun OrcinusApp(
                     onOpenAbout = { backStack.add(AboutNavKey) },
                     onOpenPreferences = { backStack.add(PreferencesNavKey) },
                     onOpenTroubleshoot = { backStack.add(TroubleshootNavKey) },
+                    onOpenObjectTable = { item -> backStack.add(ObjectTableNavKey.of(item)) },
                 )
             }
             setupEntry(
@@ -309,6 +313,10 @@ fun OrcinusApp(
             )
             preferencesEntry(
                 createViewModel = container::preferencesViewModel,
+                onBack = { backStack.removeLastOrNull() },
+            )
+            objectTableEntry(
+                createViewModel = container::objectTableViewModel,
                 onBack = { backStack.removeLastOrNull() },
             )
             aboutEntries(
@@ -344,6 +352,8 @@ private fun Workspace(
     onOpenAbout: () -> Unit,
     onOpenPreferences: () -> Unit,
     onOpenTroubleshoot: () -> Unit,
+    /** Plater::PopupObjectTable(): the Parameter Table, on the row of the item or on none. */
+    onOpenObjectTable: (SettingsItem?) -> Unit,
 ) {
     val plate by shell.plate.collectAsStateWithLifecycle()
     // GUI_App::on_init_inner() selects the Home tab first (MainFrame::tpHome).
@@ -603,6 +613,10 @@ private fun Workspace(
                     if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
                     onOpenTroubleshoot()
                 },
+                onOpenObjectTable = { item ->
+                    if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
+                    onOpenObjectTable(item)
+                },
                 onShowCanvas = {
                     if (layout == OrcaWindowLayout.Compact) sidebarVisible = false
                 },
@@ -631,6 +645,7 @@ private fun Workspace(
                     onSliceRequested = sliceRequested,
                     onOpenSidebar = { sidebarVisible = true },
                     onOpenSetting = onOpenSetting,
+                    onOpenObjectTable = onOpenObjectTable,
                 )
                 previewEntry(
                     createViewModel = container::previewViewModel,

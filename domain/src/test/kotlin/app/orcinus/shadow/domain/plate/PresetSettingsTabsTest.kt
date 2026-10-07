@@ -63,9 +63,11 @@ import app.orcinus.shadow.core.model.SettingsLine
 import app.orcinus.shadow.core.model.SettingsLineOption
 import app.orcinus.shadow.core.model.SettingsMode
 import app.orcinus.shadow.core.model.SettingsPage
+import app.orcinus.shadow.core.model.SettingsItem
 import app.orcinus.shadow.core.model.SettingsRequest
 import app.orcinus.shadow.core.model.SettingsTab
 import app.orcinus.shadow.core.model.SettingsTabOutcome
+import app.orcinus.shadow.core.model.SettingsTabState
 import app.orcinus.shadow.core.model.SetupFilamentsOutcome
 import app.orcinus.shadow.core.model.SetupPrintersOutcome
 import app.orcinus.shadow.core.model.SliceJobId
@@ -399,6 +401,96 @@ class PresetSettingsTabsTest {
         assertEquals(listOf(range.settings), call.model.settings)
         assertEquals(owner.settings, call.model.parent)
         assertEquals(answered, repository.state.value.objects.single().layerRanges.single().settings)
+    }
+
+    @Test
+    fun `a request of the Parameter Table stays on its row's item, a question it asks included, whatever is selected`() {
+        val other = CUBE.copy(
+            instances = listOf(CUBE.instances.first().copy(inspection = CUBE.instances.first().inspection.copy(mesh = ScenePath("/scene/objects/other.mesh")))),
+            settings = ModelSettings(mapOf("layer_height" to "0.24")),
+        )
+        val repository = FakeRepository(READY.copy(objects = listOf(CUBE, other), selectedInstances = setOf(PlateInstanceId(other.mesh))))
+        val spiral = dialog("spiral_mode", question = true)
+        val answered = ModelSettings(mapOf("layer_height" to "0.3"))
+        val editor = FakeEditor { call ->
+            if ("spiral_mode" !in call.answers) {
+                PresetSettingsOutcome.Question(spiral, loadsSelection = false)
+            } else {
+                PresetSettingsOutcome.Success(STANDARD.copy(kind = PresetKind.OBJECT, modelSettings = listOf(answered)), emptyList())
+            }
+        }
+        val tabs = PresetSettingsTabs(editor, FakePresetManager(), NO_FLUSH_UPDATES, repository, scope)
+
+        tabs.request(SettingsItem.Object(CUBE.mesh), SettingsRequest.Change("layer_height", "0.3"))
+        tabs.answer(PresetKind.OBJECT, yes = true)
+
+        // Both runs carried the row's object, not the selected one, and the answer stays with it.
+        assertEquals(List(2) { listOf(CUBE.settings) }, editor.requests.map { it.model.settings })
+        assertEquals(listOf(answered, other.settings), repository.state.value.objects.map(PlateObject::settings))
+    }
+
+    @Test
+    fun `the Parameter Table writes only what differs from what a row takes, and refuses a density over 100 percent`() {
+        val repository = FakeRepository(
+            READY.copy(objects = listOf(CUBE), settingsTabs = READY.settingsTabs + (PresetKind.PRINT to SettingsTabState(PresetKind.PRINT, settings = STANDARD))),
+        )
+        val editor = FakeEditor()
+        val tabs = PresetSettingsTabs(editor, FakePresetManager(), NO_FLUSH_UPDATES, repository, scope)
+        val table = ObjectTableUseCase(
+            repository,
+            tabs,
+            SelectPlateObjectUseCase(repository),
+            SelectObjectPartUseCase(repository),
+            SetPlateObjectPrintableUseCase(repository),
+            RenamePlateItemUseCase(repository),
+        )
+        val cube = SettingsItem.Object(CUBE.mesh)
+
+        // The object overrides 0.28 over the process preset's 0.2.
+        table.change(cube, ObjectTableColumn.LAYER_HEIGHT, "0.28")
+        table.change(cube, ObjectTableColumn.FILL_DENSITY, "150")
+        assertTrue(editor.requests.isEmpty())
+
+        table.change(cube, ObjectTableColumn.LAYER_HEIGHT, "0.20")
+        table.change(cube, ObjectTableColumn.LAYER_HEIGHT, "0.3")
+        table.reset(cube, ObjectTableColumn.LAYER_HEIGHT)
+
+        assertEquals(
+            listOf(SettingsRequest.Reset(listOf("layer_height")), SettingsRequest.Change("layer_height", "0.3"), SettingsRequest.Reset(listOf("layer_height"))),
+            editor.requests.map { it.request },
+        )
+        assertTrue(editor.requests.all { it.kind == PresetKind.OBJECT })
+    }
+
+    @Test
+    fun `an object's filament in the Parameter Table takes back the same filament its volumes had of their own, as one step of Undo`() {
+        val part = ObjectPart("Cube", VolumeType.PART, ScenePath("/scene/objects/part.mesh"), Transform3.IDENTITY, ModelSettings(mapOf("extruder" to "2")))
+        val modifier = part.copy(type = VolumeType.MODIFIER, mesh = ScenePath("/scene/objects/modifier.mesh"), settings = ModelSettings(mapOf("extruder" to "3")))
+        val negative = part.copy(type = VolumeType.NEGATIVE, mesh = ScenePath("/scene/objects/negative.mesh"))
+        val owner = CUBE.copy(parts = listOf(part, modifier, negative))
+        val filaments = PROFILES.copy(filaments = List(3) { ProfileId("filament") })
+        val repository = FakeRepository(READY.copy(presets = PRESETS.copy(selection = filaments), objects = listOf(owner)))
+        val table = ObjectTableUseCase(
+            repository,
+            PresetSettingsTabs(FakeEditor(), FakePresetManager(), NO_FLUSH_UPDATES, repository, scope),
+            SelectPlateObjectUseCase(repository),
+            SelectObjectPartUseCase(repository),
+            SetPlateObjectPrintableUseCase(repository),
+            RenamePlateItemUseCase(repository),
+        )
+
+        table.setFilament(SettingsItem.Object(owner.mesh), 2)
+
+        val changed = repository.state.value.objects.single()
+        assertEquals("2", changed.settings.values["extruder"])
+        // update_volume_values_from_object() goes by the value, whatever the volume's type.
+        assertEquals(listOf(null, "3", null), changed.parts.map { it.settings.values["extruder"] })
+        assertEquals(1, repository.state.value.history.undo.size)
+
+        // A negative volume takes no filament, and the plate has no fourth one.
+        table.setFilament(SettingsItem.Volume(ObjectPartId(owner.mesh, 3)), 1)
+        table.setFilament(SettingsItem.Volume(ObjectPartId(owner.mesh, 1)), 4)
+        assertEquals(1, repository.state.value.history.undo.size)
     }
 
     @Test

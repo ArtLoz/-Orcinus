@@ -4,6 +4,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
 import app.orcinus.shadow.core.model.SearchOption
+import app.orcinus.shadow.core.model.SettingsItem
 import app.orcinus.shadow.feature.prepare.PrepareRoute
 import app.orcinus.shadow.feature.prepare.PrepareViewModel
 import kotlinx.serialization.Serializable
@@ -24,6 +25,8 @@ fun EntryProviderScope<NavKey>.prepareEntry(
     onOpenSidebar: () -> Unit = {},
     /** A setting a validation notification jumps to opens on its tab's page. */
     onOpenSetting: (SearchOption) -> Unit = {},
+    /** The object menus' "Edit in Parameter Table": the table opens on the row of the item, or on none. */
+    onOpenObjectTable: (SettingsItem?) -> Unit = {},
 ) {
     entry<PrepareNavKey> {
         PrepareRoute(
@@ -32,6 +35,7 @@ fun EntryProviderScope<NavKey>.prepareEntry(
             onSliceRequested = onSliceRequested,
             onOpenSidebar = onOpenSidebar,
             onOpenSetting = onOpenSetting,
+            onOpenObjectTable = onOpenObjectTable,
         )
     }
 }

@@ -311,6 +311,8 @@ class ObjectMenuActions(
     val editText: (() -> Unit)? = null,
     /** append_menu_item_edit_svg(): the SVG tool opens on the object made of an SVG; null for none. */
     val editSvg: (() -> Unit)? = null,
+    /** append_menu_item_per_object_settings(): the Parameter Table opens (Plater::PopupObjectTableBySelection); null for none. */
+    val editInParameterTable: (() -> Unit)? = null,
 )
 
 /**
@@ -400,7 +402,10 @@ fun ObjectMenuItems(state: ObjectMenuState, actions: ObjectMenuActions, dismiss:
         copy = run(actions.copyProcessSettings),
         paste = run(actions.pasteProcessSettings),
     )
-    // MenuFactory::object_menu() puts Flush Options after the process settings.
+    // append_menu_item_per_object_settings() after the process settings: the
+    // selection is a single object or copy (is_single_full_object(), is_single_full_instance()).
+    actions.editInParameterTable?.let { ParameterTableItem(enabled = state.enabled, onClick = run(it)) }
+    // append_menu_items_flush_options() inserts Flush Options after "Edit in Parameter Table".
     state.flushOptions?.let { flush ->
         OrcaSubmenu(text = orcaString("Flush Options"), enabled = state.enabled) {
             FlushOption.entries.forEach { option ->
@@ -449,6 +454,12 @@ fun ProcessSettingsItems(enabled: Boolean, canPaste: Boolean, edit: () -> Unit, 
     OrcaMenuItem(text = orcaString("Edit Process Settings"), enabled = enabled, onClick = edit)
     OrcaMenuItem(text = orcaString("Copy Process Settings"), enabled = enabled, onClick = copy)
     OrcaMenuItem(text = orcaString("Paste Process Settings"), enabled = canPaste, onClick = paste)
+}
+
+/** MenuFactory::append_menu_item_per_object_settings(): "Edit in Parameter Table". */
+@Composable
+fun ParameterTableItem(enabled: Boolean, onClick: () -> Unit) {
+    OrcaMenuItem(text = orcaString("Edit in Parameter Table"), enabled = enabled, onClick = onClick)
 }
 
 /**

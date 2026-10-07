@@ -112,6 +112,7 @@ import app.orcinus.shadow.domain.plate.MoveWipeTowerUseCase
 import app.orcinus.shadow.domain.plate.ObjColorPrompt
 import app.orcinus.shadow.domain.plate.ObjectMeshRetention
 import app.orcinus.shadow.domain.plate.ObjectOrderUseCase
+import app.orcinus.shadow.domain.plate.ObjectTableUseCase
 import app.orcinus.shadow.domain.plate.ObservePlateUseCase
 import app.orcinus.shadow.domain.plate.ObservePrinterConnectionUseCase
 import app.orcinus.shadow.domain.plate.OpenFilesUseCase
@@ -203,6 +204,7 @@ import app.orcinus.shadow.feature.about.TroubleshootViewModel
 import app.orcinus.shadow.feature.about.navigation.AboutViewModelFactory
 import app.orcinus.shadow.feature.device.DeviceViewModel
 import app.orcinus.shadow.feature.home.HomeViewModel
+import app.orcinus.shadow.feature.objecttable.ObjectTableViewModel
 import app.orcinus.shadow.feature.preferences.PreferencesViewModel
 import app.orcinus.shadow.feature.prepare.PrepareViewModel
 import app.orcinus.shadow.feature.preview.PreviewViewModel
@@ -946,6 +948,13 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         settingsTabs = settingsTabs,
         setBedShape = setBedShape,
         bedShapeFiles = bedShapeFiles,
+    )
+
+    // The Parameter Table (ObjectTableDialog), which the sidebar and the object menus open.
+    fun objectTableViewModel() = ObjectTableViewModel(
+        observePlate = observePlate,
+        table = ObjectTableUseCase(plateRepository, settingsTabs, selectPlateObject, selectObjectPart, setPlateObjectPrintable, renamePlateItem),
+        settingsTabs = settingsTabs,
     )
 
     fun setupWizardViewModel(start: SetupStart) = SetupWizardViewModel(

@@ -1517,6 +1517,8 @@ data class PendingSettingsQuestion(
     val dialog: SettingsDialog,
     val request: SettingsRequest,
     val answers: Map<String, Boolean>,
+    /** The item the request edits whatever is selected (a row of the Parameter Table); null for the selection. */
+    val target: SettingsItem? = null,
 )
 
 /** One of OrcaSlicer's settings tabs as the app shows it. */

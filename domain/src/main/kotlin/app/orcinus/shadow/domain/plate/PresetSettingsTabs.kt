@@ -25,6 +25,7 @@ import app.orcinus.shadow.core.model.PresetNamesOutcome
 import app.orcinus.shadow.core.model.PresetSettings
 import app.orcinus.shadow.core.model.PresetSettingsOutcome
 import app.orcinus.shadow.core.model.PresetsOutcome
+import app.orcinus.shadow.core.model.SettingsItem
 import app.orcinus.shadow.core.model.SettingsRequest
 import app.orcinus.shadow.core.model.SettingsTabOutcome
 import app.orcinus.shadow.core.model.SettingsTabState
@@ -85,6 +86,19 @@ class PresetSettingsTabs(
         applicationScope.launch { run(kind, request, emptyMap()) }
     }
 
+    /**
+     * Runs [request] on the tab of [item] whatever the plate has selected: the
+     * Parameter Table writes into the ModelConfig of a row's object or volume
+     * (ObjectGridTable::SetValue()), so the request, and a question it asks,
+     * stay on that item even when another is selected before it runs.
+     */
+    fun request(item: SettingsItem, request: SettingsRequest) {
+        val kind = item.presetKind
+        val state = repository.state.value
+        if (state.profiles == null || state.busy || state.tab(kind).question != null) return
+        applicationScope.launch { run(kind, request, emptyMap(), item) }
+    }
+
     /** Answers the pending question of the tab, and runs its request again. */
     fun answer(kind: PresetKind, yes: Boolean) {
         var question: PendingSettingsQuestion? = null
@@ -93,7 +107,7 @@ class PresetSettingsTabs(
             state.withTab(kind) { copy(question = null) }
         }
         val pending = question ?: return
-        applicationScope.launch { run(kind, pending.request, pending.answers + (pending.dialog.id to yes)) }
+        applicationScope.launch { run(kind, pending.request, pending.answers + (pending.dialog.id to yes), pending.target) }
     }
 
     /**
@@ -172,12 +186,17 @@ class PresetSettingsTabs(
             .filter { it.kind != PresetKind.OBJECT || repository.state.value.selectedInstances.isNotEmpty() }
             .map { it.kind }
 
-    private suspend fun run(kind: PresetKind, request: SettingsRequest, answers: Map<String, Boolean>) =
-        requests.withLock { perform(kind, request, answers) }
+    private suspend fun run(kind: PresetKind, request: SettingsRequest, answers: Map<String, Boolean>, target: SettingsItem? = null) =
+        requests.withLock { perform(kind, request, answers, target) }
 
-    /** The request itself, which another request of the same run may follow. */
-    private suspend fun perform(kind: PresetKind, request: SettingsRequest, answers: Map<String, Boolean>) {
+    /**
+     * The request itself, which another request of the same run may follow; on
+     * the item [target] when it has one, otherwise on what the plate has selected.
+     */
+    private suspend fun perform(kind: PresetKind, request: SettingsRequest, answers: Map<String, Boolean>, target: SettingsItem? = null) {
         if (repository.state.value.profiles == null) return
+        // The row's item left the plate before its request ran.
+        if (target != null && repository.state.value.modelSettingsOf(target) == null) return
         repository.update { state -> state.withTab(kind) { copy(changing = true, problem = null) } }
         if (repository.state.value.tab(kind).tab == null) {
             when (val tab = editor.settingsTab(kind)) {
@@ -191,7 +210,7 @@ class PresetSettingsTabs(
         val page = repository.state.value.tab(kind).page
         // The tab of an object or of the plate is described with the overrides
         // the plate keeps, since the engine holds no plate of its own.
-        val model = repository.state.value.modelRequest(kind)
+        val model = repository.state.value.let { state -> if (target != null) state.modelRequestOf(target) else state.modelRequest(kind) }
         val outcome = when (request) {
             SettingsRequest.Describe -> editor.settings(kind, page, answers, model)
             is SettingsRequest.SelectPage -> editor.settings(kind, request.page, answers, model)
@@ -213,10 +232,10 @@ class PresetSettingsTabs(
             is PresetSettingsOutcome.Question -> repository.update { state ->
                 val repeated = if (outcome.loadsSelection) SettingsRequest.Describe else request
                 val kept = if (outcome.loadsSelection) emptyMap() else answers
-                state.withTab(kind) { copy(changing = false, question = PendingSettingsQuestion(outcome.question, repeated, kept)) }
+                state.withTab(kind) { copy(changing = false, question = PendingSettingsQuestion(outcome.question, repeated, kept, target)) }
             }
             is PresetSettingsOutcome.Success -> {
-                apply(kind, outcome)
+                apply(kind, outcome, target)
                 if (request is SettingsRequest.SaveConnection) repository.update { it.copy(connectionSaves = it.connectionSaves + 1) }
                 // Tab::update_dirty() and on_presets_changed() of a preset's tab end
                 // with update_project_dirty_from_presets() once its values change.
@@ -266,21 +285,25 @@ class PresetSettingsTabs(
         }
     }
 
-    private suspend fun apply(kind: PresetKind, outcome: PresetSettingsOutcome.Success) {
+    private suspend fun apply(kind: PresetKind, outcome: PresetSettingsOutcome.Success, target: SettingsItem? = null) {
         var before: PresetSettings? = null
         var valuesChanged = false
+        // What the object or the plate overrides after the request: the target's, or the selection's.
+        val answered: PlateState.() -> PlateState = {
+            val settings = outcome.settings.modelSettings
+            if (target != null) withModelSettingsOf(target, settings) else withModelSettings(kind, settings)
+        }
         repository.update { state ->
             before = state.tab(kind).settings
             // Tab::on_value_change() of an object, a part, a range or the plate: "Change Option".
-            val changed = state.withModelSettings(kind, outcome.settings.modelSettings)
+            val changed = state.answered()
             val model = changed.objects != state.objects || changed.plateSettings != state.plateSettings
             valuesChanged = model || changesSlicing(state.tab(kind).settings, outcome.settings)
             (if (model) state.recorded() else state)
                 .withTab(kind) {
                     copy(settings = outcome.settings, page = outcome.settings.activePage, changing = false, notices = notices + outcome.notices)
                 }
-                // What the object or the plate overrides after the request.
-                .withModelSettings(kind, outcome.settings.modelSettings)
+                .answered()
                 .copy(result = state.result.takeUnless { !state.keepsGcode && changesSlicing(before, outcome.settings) })
         }
         val previous = before
@@ -366,6 +389,21 @@ class PresetSettingsTabs(
         else -> this
     }
 
+    /** What the tab of [item] is described with: its overrides, on those of its object for a volume or a range. */
+    private fun PlateState.modelRequestOf(item: SettingsItem): ModelSettingsRequest {
+        val owner = objects.withMesh(item.mesh) ?: return ModelSettingsRequest()
+        val settings = owner.settingsOf(item) ?: return ModelSettingsRequest()
+        val parent = if (item is SettingsItem.Object) ModelSettings() else owner.settings
+        return ModelSettingsRequest(settings = listOf(settings), plate = plateSettings, parent = parent)
+    }
+
+    /** The overrides the request answered with, kept with [item]. */
+    private fun PlateState.withModelSettingsOf(item: SettingsItem, settings: List<ModelSettings>?): PlateState {
+        val answered = settings?.firstOrNull() ?: return this
+        val owner = objects.withMesh(item.mesh) ?: return this
+        return copy(objects = objects.replaced(owner.withSettingsOf(item, answered)))
+    }
+
     private fun PlateState.tab(kind: PresetKind): SettingsTabState = settingsTabs[kind] ?: SettingsTabState(kind)
 
     private companion object {
@@ -399,3 +437,14 @@ class PresetSettingsTabs(
     private fun PlateState.withTab(kind: PresetKind, change: SettingsTabState.() -> SettingsTabState) =
         copy(settingsTabs = settingsTabs + (kind to tab(kind).change()))
 }
+
+/** The tab that edits an item of the object list: TabPrintObject, TabPrintPart or TabPrintLayer. */
+internal val SettingsItem.presetKind: PresetKind
+    get() = when (this) {
+        is SettingsItem.Object -> PresetKind.OBJECT
+        is SettingsItem.Volume -> PresetKind.PART
+        is SettingsItem.Layer -> PresetKind.LAYER
+    }
+
+/** What [item] overrides (ObjectList::get_item_config()); null once the item has left the plate. */
+internal fun PlateState.modelSettingsOf(item: SettingsItem): ModelSettings? = objects.withMesh(item.mesh)?.settingsOf(item)

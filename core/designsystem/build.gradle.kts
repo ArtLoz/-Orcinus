@@ -162,6 +162,8 @@ val orcaIconNames = listOf(
     "notification_slicing_complete", "notification_close",
     // DailyTipsPanel's arrows.
     "notification_collapse", "notification_expand", "notification_arrow_left", "notification_arrow_right",
+    // ParamsPanel's button of the Parameter Table, and the table's reset icon (ObjectTablePanel::init_bitmap()).
+    "table", "lock_normal",
 )
 // Toolbar icons, whose dark variant OrcaSlicer loads from <icon>_dark.svg
 // (GLCanvas3D::_init_main_toolbar, GLGizmosManager::init).
