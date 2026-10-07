@@ -6057,6 +6057,105 @@ TEST_CASE("A painting tool paints every model part of its object", "[Adapter][Sc
     CHECK_FALSE(closed.part_facets.front().empty());
 }
 
+// The corners of a mesh file the engine wrote for the 3D view, placed by the
+// column-major matrix.
+std::vector<std::array<double, 3>> mesh_corners(const std::string& path, const std::array<double, 16>& matrix)
+{
+    const std::string data = read_file(path);
+    std::vector<std::array<double, 3>> corners;
+    if (data.size() < 16) {
+        return corners;
+    }
+    const std::uint32_t count = read_u32(data, 8);
+    for (std::uint32_t vertex = 0; vertex < count && 16 + (vertex + 1) * 12 <= data.size(); ++vertex) {
+        float v[3];
+        std::memcpy(v, data.data() + 16 + vertex * 12, sizeof(v));
+        std::array<double, 3> placed{};
+        for (int axis = 0; axis < 3; ++axis) {
+            placed[axis] = matrix[axis] * v[0] + matrix[4 + axis] * v[1] + matrix[8 + axis] * v[2] + matrix[12 + axis];
+        }
+        corners.push_back(placed);
+    }
+    return corners;
+}
+
+TEST_CASE("A brush stroke follows the finger's path on the screen over an edge of the model", "[Adapter][Scene][PaintPath]")
+{
+    require_engine();
+    const orca::ImportedModels imported =
+        orca::import_model(device_dir + "/data/20mm_cube.obj", k2_plus_profiles(), {}, import_prefix("paint-path-cube"), {});
+    REQUIRE(imported.status == orca::SceneStatus::success);
+    const orca::ImportedObject& object = imported.objects.front();
+    const std::array<double, 16>& instance = object.instances.front().instance_matrix;
+    // The cube's centre, 10 mm from each of its faces.
+    const double cx = instance[12];
+    const double cy = instance[13];
+    const double cz = instance[14];
+    // The camera above the cube's +X side looks at it along the plane y = cy:
+    // the finger goes from the middle of the top face to the middle of that
+    // side, over the edge between them, the sphere of 1 mm painting.
+    const std::array<double, 3> eye{cx + 60.0, cy, cz + 60.0};
+    const auto stroke_to = [&](const double x, const double z) {
+        orca::PaintStroke stroke;
+        stroke.origin[0] = eye[0];
+        stroke.origin[1] = eye[1];
+        stroke.origin[2] = eye[2];
+        stroke.direction[0] = x - eye[0];
+        stroke.direction[1] = cy - eye[1];
+        stroke.direction[2] = z - eye[2];
+        stroke.state = 1;
+        stroke.radius = 1.0;
+        stroke.tool = orca::PaintTool::brush;
+        return stroke;
+    };
+    // The edge's middle, which the paint reaches when it follows the path.
+    const auto reaches_edge = [&](const orca::PaintingState& painted) {
+        for (const std::string& mesh : painted.meshes) {
+            for (const std::array<double, 3>& corner : mesh_corners(mesh, instance)) {
+                if (std::hypot(corner[0] - (cx + 10.0), corner[1] - cy, corner[2] - (cz + 10.0)) < 1.5) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    // The finger's positions from the side back to the top, as the 3D view
+    // casts them between its two touches; the top one last.
+    const auto path_back_to_top = [&]() {
+        std::vector<double> path;
+        // An odd count, so that no ray goes through the edge itself.
+        for (int step = 1; step <= 41; ++step) {
+            const double t = step / 41.0;
+            const orca::PaintStroke ray = stroke_to(cx + 10.0 - 10.0 * t, cz + 10.0 * t);
+            path.insert(path.end(), {ray.origin[0], ray.origin[1], ray.origin[2], ray.direction[0], ray.direction[1], ray.direction[2]});
+        }
+        return path;
+    };
+
+    for (const bool along_path : {false, true}) {
+        INFO("along the path: " << along_path);
+        const std::string prefix = output_path(along_path ? "paint-path" : "paint-chord");
+        REQUIRE(orca::begin_painting(plate_object_of(object), orca::PaintKind::color, k2_plus_profiles(), prefix).status == orca::SceneStatus::success);
+        orca::PaintStroke top = stroke_to(cx, cz + 10.0);
+        top.starts = true;
+        const orca::PaintingState pressed = orca::paint(top, prefix);
+        REQUIRE(pressed.status == orca::SceneStatus::success);
+        REQUIRE(pressed.hit);
+        orca::PaintStroke side = stroke_to(cx + 10.0, cz);
+        if (along_path) {
+            side.path = path_back_to_top();
+        }
+        const orca::PaintingState moved = orca::paint(side, prefix);
+        REQUIRE(moved.status == orca::SceneStatus::success);
+        CHECK(moved.hit);
+        // get_projected_mouse_positions(): the path's hits on the two faces
+        // are joined over the edge; a straight chord from the top to the side
+        // passes 7 mm inside it.
+        CHECK(reaches_edge(moved) == along_path);
+        REQUIRE(orca::end_painting().status == orca::SceneStatus::success);
+    }
+}
+
 // matrix with its offset moved by dz.
 std::vector<double> raised(std::vector<double> matrix, double dz)
 {

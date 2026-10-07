@@ -39,6 +39,7 @@ import app.orcinus.shadow.core.ui.orca.orcaText
 import app.orcinus.shadow.render.scene.CutConnectorEvent
 import app.orcinus.shadow.render.scene.CutLineEvent
 import app.orcinus.shadow.render.scene.CutPlanes
+import kotlin.math.abs
 
 /** What the cut gizmo does while it is open (GLGizmoCut3D). */
 internal class CutActions(
@@ -50,7 +51,7 @@ internal class CutActions(
     val flip: () -> Unit,
     /** "Cut position": the height of the plane's centre. */
     val setPosition: (Double) -> Unit,
-    /** "Reset cutting plane", and "Reset". */
+    /** "Reset cutting plane". */
     val resetPlane: () -> Unit,
     val setKeep: (upper: Boolean, keep: Boolean) -> Unit,
     val setPlaceOnCut: (upper: Boolean, place: Boolean) -> Unit,
@@ -73,6 +74,8 @@ internal class CutActions(
     /** "Draw cut line" on or off, and the line a finger draws while it is on. */
     val drawLine: (Boolean) -> Unit = {},
     val line: (CutLineEvent) -> Unit = {},
+    /** "Reset" of the planar cut: the plane reset and the connectors removed, in one step of Undo. */
+    val reset: () -> Unit = {},
 ) {
     companion object {
         val NONE = CutActions({}, { _, _ -> }, {}, {}, {}, { _, _ -> }, { _, _ -> }, { _, _ -> }, {}, {}, {})
@@ -96,8 +99,11 @@ internal class CutConnectorActions(
     val setSettings: ((CutConnectorSettings) -> CutConnectorSettings) -> Unit,
     /** "Space" and "Bulge" of the snaps. */
     val setSnap: (space: Double, bulge: Double) -> Unit,
-    /** A slider let go, or a reset: the gizmo's snapshot of the connectors ("Edited: <label>"). */
+    /** A slider let go. */
     val settingsDone: () -> Unit = {},
+    /** "Rotation", in radians, which takes the snapshot "Edited: Rotation" as its slider begins to change, and its reset. */
+    val setAngle: (Double) -> Unit = {},
+    val resetAngle: () -> Unit = {},
 ) {
     companion object {
         val NONE = CutConnectorActions({}, {}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> })
@@ -213,10 +219,7 @@ internal fun CutPanel(mode: CutMode, actions: CutActions, imperial: Boolean, pla
                     text = orcaString("Reset"),
                     size = OrcaButtonSize.Compact,
                     enabled = !mode.planeAtStart || hasConnectors,
-                    onClick = {
-                        actions.resetPlane()
-                        if (hasConnectors) actions.connectors.removeAll()
-                    },
+                    onClick = actions.reset,
                 )
             }
             Spacer(Modifier.weight(1f))
@@ -341,40 +344,32 @@ private fun CutConnectorsPanel(mode: CutMode, actions: CutConnectorActions) {
             onSelect = { shape -> actions.setSettings { it.copy(shape = shape) } },
         )
         val depthMin = if (settings.type == CutConnectorType.SNAP) (settings.size ?: 1.0) else 1.0
-        val done = actions.settingsDone
-        CutSlider(orcaString("Depth"), settings.depth, depthMin, meanSize, orcaString("mm"), onFinished = done) { value -> actions.setSettings { it.copy(depth = value) } }
-        CutSlider(orcaString("Tolerance"), settings.depthTolerance, 0.0, 0.5 * meanSize, orcaString("mm"), onFinished = done) { value ->
+        // render_slider_two_input() of the depth and the size takes no snapshot.
+        CutSlider(orcaString("Depth"), settings.depth, depthMin, meanSize, orcaString("mm")) { value -> actions.setSettings { it.copy(depth = value) } }
+        CutSlider(orcaString("Tolerance"), settings.depthTolerance, 0.0, 0.5 * meanSize, orcaString("mm")) { value ->
             actions.setSettings { it.copy(depthTolerance = value) }
         }
-        CutSlider(orcaString("Size"), settings.size, 1.0, meanSize, orcaString("mm"), onFinished = done) { value -> actions.setSettings { it.copy(size = value) } }
-        CutSlider(orcaString("Tolerance"), settings.sizeTolerance, 0.0, 0.5 * meanSize, orcaString("mm"), onFinished = done) { value ->
+        CutSlider(orcaString("Size"), settings.size, 1.0, meanSize, orcaString("mm")) { value -> actions.setSettings { it.copy(size = value) } }
+        CutSlider(orcaString("Tolerance"), settings.sizeTolerance, 0.0, 0.5 * meanSize, orcaString("mm")) { value ->
             actions.setSettings { it.copy(sizeTolerance = value) }
         }
         // render_angle_input(): 0 to 180 degrees, with its reset.
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) {
-                CutSlider(orcaString("Rotation"), settings.angle?.let(Math::toDegrees), 0.0, 180.0, "°", decimals = 0, onFinished = done) { value ->
-                    actions.setSettings { it.copy(angle = Math.toRadians(value)) }
-                }
+        CutResettable(enabled = settings.angle != 0.0, onReset = actions.resetAngle) {
+            CutSlider(orcaString("Rotation"), settings.angle?.let(Math::toDegrees), 0.0, 180.0, "°", decimals = 0, onFinished = actions.settingsDone) { value ->
+                actions.setAngle(Math.toRadians(value))
             }
-            OrcaIconButton(
-                icon = DesignR.drawable.orca_toolbar_reset,
-                contentDescription = orcaString("Reset"),
-                onClick = {
-                    actions.setSettings { it.copy(angle = 0.0) }
-                    done()
-                },
-                enabled = settings.angle != 0.0,
-                tint = colors.onCanvasPanel,
-            )
         }
         if (settings.type == CutConnectorType.SNAP) {
-            // render_snap_specific_input(): percentages of the radius.
-            CutSlider(orcaString("Bulge"), mode.snapBulge * 100.0, 5.0, 100.0 * mode.snapSpace, "%", decimals = 0) { value ->
-                actions.setSnap(mode.snapSpace, value / 100.0)
+            // render_snap_specific_input(): percentages of the radius, each with its reset to the gizmo's first proportion.
+            CutResettable(enabled = abs(mode.snapBulge - CutMode.SNAP_BULGE) > SNAP_EPSILON, onReset = { actions.setSnap(mode.snapSpace, CutMode.SNAP_BULGE) }) {
+                CutSlider(orcaString("Bulge"), mode.snapBulge * 100.0, 5.0, 100.0 * mode.snapSpace, "%", decimals = 0) { value ->
+                    actions.setSnap(mode.snapSpace, value / 100.0)
+                }
             }
-            CutSlider(orcaString("Space"), mode.snapSpace * 100.0, 10.0, 50.0, "%", decimals = 0) { value ->
-                actions.setSnap(value / 100.0, mode.snapBulge)
+            CutResettable(enabled = abs(mode.snapSpace - CutMode.SNAP_SPACE) > SNAP_EPSILON, onReset = { actions.setSnap(CutMode.SNAP_SPACE, mode.snapBulge) }) {
+                CutSlider(orcaString("Space"), mode.snapSpace * 100.0, 10.0, 50.0, "%", decimals = 0) { value ->
+                    actions.setSnap(value / 100.0, mode.snapBulge)
+                }
             }
         }
         HorizontalDivider(color = colors.separator, modifier = Modifier.padding(vertical = 4.dp))
@@ -605,6 +600,9 @@ private fun CutCheck(text: String, checked: Boolean, enabled: Boolean, onChange:
         )
     }
 }
+
+/** is_approx()'s EPSILON, which the snaps' resets compare with. */
+private const val SNAP_EPSILON = 1e-4
 
 // ImGuiWrapper::COL_ORANGE_LIGHT: ColorRGBA::ORANGE().
 private val ORANGE_LIGHT = Color(0.923f, 0.504f, 0.264f)

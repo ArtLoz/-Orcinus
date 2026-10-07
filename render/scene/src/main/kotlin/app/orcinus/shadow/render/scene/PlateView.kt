@@ -38,6 +38,7 @@ import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -57,6 +58,7 @@ import app.orcinus.shadow.core.model.ColorRgba
 import app.orcinus.shadow.core.model.FlatteningPlane
 import app.orcinus.shadow.core.model.Manipulation
 import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintRay
 import app.orcinus.shadow.core.model.PaintState
 import app.orcinus.shadow.core.model.PlateDescription
 import app.orcinus.shadow.core.model.PlateInstanceId
@@ -72,12 +74,14 @@ import app.orcinus.shadow.core.model.WipeTower
 import app.orcinus.shadow.core.model.extruderNumber
 import app.orcinus.shadow.core.model.mesh
 import app.orcinus.shadow.core.model.rotationPart
+import app.orcinus.shadow.core.model.scalingFactor
 import app.orcinus.shadow.render.scene.math.Affine3
 import app.orcinus.shadow.render.scene.math.Box3
 import app.orcinus.shadow.render.scene.math.Line3
 import app.orcinus.shadow.render.scene.math.Matrix4
 import app.orcinus.shadow.render.scene.math.Vec3
 import java.io.File
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
@@ -88,6 +92,7 @@ import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -98,9 +103,15 @@ import kotlinx.coroutines.withContext
  * The scale gizmo of a volume selected alone: the transformation of the
  * reference system (Selection::get_bounding_box_in_reference_system()'s
  * trafo — none, the copy's, or the volume's own in the world) and the
- * volume's box there.
+ * volume's box there; the copy's transformation and the volume's own in it,
+ * which the scale a drag reaches is told by (GLGizmoScale3D::get_tooltip()).
  */
-data class VolumeScaleFrame(val reference: Transform3, val box: VolumeBox)
+data class VolumeScaleFrame(
+    val reference: Transform3,
+    val box: VolumeBox,
+    val instance: Transform3 = Transform3.IDENTITY,
+    val volume: Transform3 = Transform3.IDENTITY,
+)
 
 /**
  * OrcaSlicer's 3D plate view: the printer's plate with the objects on it,
@@ -137,9 +148,13 @@ fun PlateView(
     onMoveWipeTower: (x: Double, y: Double) -> Unit = { _, _ -> },
     /** The painting tool open on an object: a finger on it paints instead of moving it. */
     painting: PaintingView? = null,
-    /** A stroke of the finger, as a ray in world coordinates. */
-    /** [starts] is true for the first touch of a stroke. */
-    onPaint: (origin: Vector3, direction: Vector3, starts: Boolean) -> Unit = { _, _, _ -> },
+    /**
+     * A touch of the finger painting, as rays in world coordinates: where it
+     * is, then its path on the screen back to its last touch, which [rays]
+     * ends with (get_projected_mouse_positions()); [starts] is true for the
+     * first touch of a stroke.
+     */
+    onPaint: (rays: List<PaintRay>, starts: Boolean) -> Unit = { _, _ -> },
     /** The cut gizmo open on a copy: the view shows that copy alone, cut by the plane with its grabbers. */
     cut: CutView? = null,
     /** The plane a grabber moved or turned it to; [finished] once the finger let go. */
@@ -165,6 +180,8 @@ fun PlateView(
     onSelectObject: (Int?) -> Unit,
     /** The assembly view's "Part" selection: a tap on the volume drawn as a mesh (its key) of the copy at an index. */
     onSelectVolume: (index: Int, key: String) -> Unit = { _, _ -> },
+    /** A double tap on the volume drawn as a mesh (its key) of the copy at an index: GLCanvas3D's double click on a text or an SVG. */
+    onDoubleTapVolume: (index: Int, key: String) -> Unit = { _, _ -> },
     /**
      * The page's selection mode, which stands in for the keys a phone has not:
      * a tap on a copy adds it to the selection or takes it out (a Ctrl click),
@@ -268,9 +285,9 @@ fun PlateView(
     /** The mesh file of the volume a finger picked with the mesh boolean tool open. */
     onMeshBooleanPick: (String) -> Unit = {},
     /**
-     * The move gizmo's reference system for the move window's "Object
-     * coordinates": the selected copy's placement, which turns the gizmo's box
-     * and arrows to the copy's axes; null for world coordinates.
+     * The move and scale gizmos' reference system for their windows' "Object
+     * coordinates": the selected copy's placement, which turns the gizmo's box,
+     * arrows and grabbers to the copy's axes; null for world coordinates.
      */
     moveFrame: Transform3? = null,
     /**
@@ -590,6 +607,7 @@ fun PlateView(
         SideEffect {
             controller.onSelectObject = onSelectObject
             controller.onSelectVolume = onSelectVolume
+            controller.onDoubleTapVolume = onDoubleTapVolume
             controller.selectionMode = selectionMode
             controller.onToggleObject = onToggleObject
             controller.onAddObjects = onAddObjects
@@ -597,9 +615,14 @@ fun PlateView(
             controller.onPlaceObject = onPlaceObject
             controller.onPlaceObjects = onPlaceObjects
             controller.onMoveWipeTower = onMoveWipeTower
-            controller.onPaint = { ray, starts ->
-                val direction = ray.b - ray.a
-                onPaint(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z), starts)
+            controller.onPaint = { rays, starts ->
+                onPaint(
+                    rays.map { ray ->
+                        val direction = ray.b - ray.a
+                        PaintRay(Vector3(ray.a.x, ray.a.y, ray.a.z), Vector3(direction.x, direction.y, direction.z))
+                    },
+                    starts,
+                )
             }
             controller.onCutPlane = { plane, finished -> onCutPlane(Transform3(plane.elements().toList()), finished) }
             controller.onFlipCutPlane = onFlipCutPlane
@@ -626,6 +649,7 @@ fun PlateView(
             controller.onPixelSize = onPixelSize
             controller.setCut(cut, cutIndex)
             controller.setPainting(painting != null)
+            controller.setPaintCursor(painting?.cursor)
             controller.setVerticalOnly(painting?.verticalOnly == true)
             controller.setHorizontalOnly(painting?.horizontalOnly == true)
             // GLGizmoFdmSupports::on_opening() turns the slope on; the painting's
@@ -687,8 +711,10 @@ fun PlateView(
                     .pointerInput(surface) { detectPlateGestures(controller, navigatorInput, touchSlop, doubleTapTimeout, longPressTimeout, edgePx) },
             )
             SelectionRectangle(controller, colors.accent)
+            PaintCursorOverlay(controller)
             if (navigatorSlot != null && navigatorSquare != null) NavigatorCube(controller, navigatorInput, navigatorSquare, navigatorSlot.faceLabels)
             if (shownLabels.isNotEmpty()) ObjectLabels(labelPlacements, shownLabels, Modifier.fillMaxSize())
+            GizmoHintLabel(controller)
             measureDimensions?.let { dimensions ->
                 MeasureDimensionsOverlay(
                     dimensions = dimensions,
@@ -735,6 +761,45 @@ private fun SelectionRectangle(controller: PlateViewController, color: Color) {
 
 private val SELECTION_DASH = 6.dp
 private val SELECTION_LINE = 1.5.dp
+
+/** A gizmo's value as a finger drags its grabber, and the finger's place in the view's pixels. */
+internal data class GizmoHint(val text: String, val position: Offset)
+
+/**
+ * GLCanvas3D::_render_tooltip() of a grabber being dragged
+ * (GLGizmosManager::get_tooltip()): the gizmo's value in a small label above
+ * the finger, which would hide one beside it, kept on the view.
+ */
+@Composable
+private fun GizmoHintLabel(controller: PlateViewController) {
+    val hint by controller.gizmoHint.collectAsState()
+    val shown = hint ?: return
+    val lift = with(LocalDensity.current) { GIZMO_HINT_LIFT.roundToPx() }
+    BasicText(
+        text = shown.text,
+        style = OrcaTheme.typography.body12.copy(color = Color.White),
+        modifier = Modifier
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+                val width = if (constraints.hasBoundedWidth) constraints.maxWidth else placeable.width
+                val height = if (constraints.hasBoundedHeight) constraints.maxHeight else placeable.height
+                layout(width, height) {
+                    val x = (shown.position.x - placeable.width / 2f).roundToInt().coerceIn(0, (width - placeable.width).coerceAtLeast(0))
+                    val y = (shown.position.y - lift - placeable.height).roundToInt().coerceIn(0, (height - placeable.height).coerceAtLeast(0))
+                    placeable.place(x, y)
+                }
+            }
+            .background(Color.Black.copy(alpha = GIZMO_HINT_ALPHA), RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+    )
+}
+
+/** How far above the finger the gizmo's value shows, and how dark its label is. */
+private val GIZMO_HINT_LIFT = 56.dp
+private const val GIZMO_HINT_ALPHA = 0.75f
+
+/** The axes' names in the gizmos' tooltips. */
+private val AXIS_NAMES = listOf("X", "Y", "Z")
 
 private val DEFAULT_FILAMENT_COLOR = ColorRgba(0xF2 / 255f, 0x75 / 255f, 0x4E / 255f)
 
@@ -865,6 +930,7 @@ private suspend fun PointerInputScope.detectPlateGestures(
     edgePx: Float,
 ) {
     var lastTapUptime = 0L
+    var lastObjectTapUptime = 0L
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = true)
         if (down.position.x < edgePx) return@awaitEachGesture
@@ -980,6 +1046,17 @@ private suspend fun PointerInputScope.detectPlateGestures(
             } else {
                 lastTapUptime = now
             }
+            lastObjectTapUptime = 0L
+        } else if (!dragging && !multiTouch && pressedObject && !menuOpened && !longPressed) {
+            // GLCanvas3D::on_mouse()'s double click on an object: a text or an SVG opens its tool.
+            val now = down.uptimeMillis
+            if (now - lastObjectTapUptime <= doubleTapTimeoutMillis) {
+                controller.doubleTap(down.position.x, down.position.y)
+                lastObjectTapUptime = 0L
+            } else {
+                lastObjectTapUptime = now
+            }
+            lastTapUptime = 0L
         }
     }
 }
@@ -1081,6 +1158,13 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private var rectangleStart = Offset.Zero
 
     /**
+     * GLGizmosManager::get_tooltip() while a finger drags a grabber of the
+     * move, rotate or scale gizmo: the value it reaches, and where the finger is.
+     */
+    private val gizmoHintState = MutableStateFlow<GizmoHint?>(null)
+    val gizmoHint: StateFlow<GizmoHint?> = gizmoHintState.asStateFlow()
+
+    /**
      * GLCanvas3D::on_mouse(): the rectangle starts with Shift over empty space,
      * but not while a painting tool, the cut or the assembly view holds the canvas.
      */
@@ -1170,8 +1254,9 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
 
     var onSelectObject: (Int?) -> Unit = {}
     var onSelectVolume: (Int, String) -> Unit = { _, _ -> }
+    var onDoubleTapVolume: (Int, String) -> Unit = { _, _ -> }
     var onMoveWipeTower: (Double, Double) -> Unit = { _, _ -> }
-    var onPaint: (Line3, starts: Boolean) -> Unit = { _, _ -> }
+    var onPaint: (List<Line3>, starts: Boolean) -> Unit = { _, _ -> }
     var onPlaceObject: (Int, Transform3, Manipulation) -> Unit = { _, _, _ -> }
     var onPlaceObjects: (List<Pair<Int, Transform3>>, Manipulation) -> Unit = { _, _ -> }
     var onOpenObjectMenu: (Int, Float, Float) -> Unit = { _, _, _ -> }
@@ -1586,7 +1671,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         showHiddenCopies()
     }
 
-    /** The move gizmo's reference system: the copy's placement in object coordinates, null in the world's. */
+    /** The move and scale gizmos' reference system: the copy's placement in object coordinates, null in the world's. */
     private var moveFrame: Affine3? = null
 
     fun setMoveFrame(frame: Transform3?) {
@@ -1645,8 +1730,96 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         if (painting == value) return
         painting = value
         paintingStroke = false
+        clearPaintCursor()
         drag = null
         showHiddenCopies()
+    }
+
+    /** The painting tool's brush cursor (GLGizmoPainterBase::render_cursor()); null for a tool without one. */
+    private var paintCursor: PaintCursor? = null
+
+    /** Where the finger painting meets the painted copy, in the world (m_rr.hit), while it does. */
+    private var paintCursorHit: Vec3? = null
+
+    private val paintCircleState = MutableStateFlow<PaintCursorCircle?>(null)
+
+    /** render_cursor_circle()'s circle while a finger paints with the circle. */
+    val paintCircle: StateFlow<PaintCursorCircle?> = paintCircleState.asStateFlow()
+
+    fun setPaintCursor(cursor: PaintCursor?) {
+        if (paintCursor == cursor) return
+        paintCursor = cursor
+        clearPaintCursor()
+        invalidate()
+    }
+
+    /**
+     * update_raycast_cache() of the 3D view: the nearest point where [ray]
+     * meets the painted copy's model parts, past what the section clips and,
+     * but in the assembly view, what sinks under the plate; null off them.
+     */
+    private fun paintedHit(ray: Line3): Vec3? {
+        val plane = paintSectionPlane?.takeIf { (paintSection?.position ?: 0.0) > 0.0 }
+        val clipped = { point: Vec3 -> plane != null && plane.first.dot(point) > plane.second }
+        return objects.filter { it.index == selectedIndex && !it.modifier && !it.overlay }
+            .mapNotNull { it.unproject(ray, assembly == null, clipped) }
+            .minByOrNull { (it - ray.a).norm() }
+    }
+
+    /**
+     * render_cursor(): the cursor where the finger at ([x], [y]) meets the
+     * painted copy at [hit], none off it; the circle's radius is
+     * m_cursor_radius at the camera's zoom.
+     */
+    private fun showPaintCursor(x: Float, y: Float, hit: Vec3?) {
+        val cursor = paintCursor
+        paintCursorHit = hit.takeIf { cursor != null }
+        paintCircleState.value = if (cursor?.shape == PaintCursorShape.CIRCLE && hit != null) {
+            PaintCursorCircle(Offset(x, y), (cursor.radius * camera.zoom).toFloat(), circleCursorSteps(camera.zoom / density), cursor.rightButton)
+        } else {
+            null
+        }
+        invalidate()
+    }
+
+    private fun clearPaintCursor() {
+        paintCursorHit = null
+        paintCircleState.value = null
+    }
+
+    /**
+     * get_projected_mouse_positions()'s mouse positions as rays: the finger's
+     * at ([x], [y]), then, once it moved a desktop pixel or more since the
+     * stroke's last touch, the positions a desktop pixel apart from here back
+     * to there, that touch last. Null when the finger's own ray is not cast.
+     */
+    private fun strokeRays(x: Float, y: Float): List<Line3>? {
+        val current = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return null
+        val rays = arrayListOf(current)
+        val dx = (lastStrokeX - x).toDouble()
+        val dy = (lastStrokeY - y).toDouble()
+        val between = (hypot(dx, dy) / density).toInt()
+        if (between > 0) {
+            for (patch in 1..between) camera.mouseRay(x + patch * dx / (between + 1), y + patch * dy / (between + 1))?.let(rays::add)
+            camera.mouseRay(lastStrokeX.toDouble(), lastStrokeY.toDouble())?.let(rays::add)
+        }
+        return rays
+    }
+
+    /** render_cursor()'s sphere and height range, which the 3D view draws at the finger; the circle is the page's. */
+    private fun paintCursorFrame(): GizmoFrame? {
+        val cursor = paintCursor ?: return null
+        val hit = paintCursorHit ?: return null
+        return when (cursor.shape) {
+            PaintCursorShape.CIRCLE -> null
+            PaintCursorShape.SPHERE -> sphereCursorFrame(cursor, hit)
+            PaintCursorShape.HEIGHT_RANGE -> {
+                // bounding_box() of the model parts; the contours of every volume of the object.
+                val volumes = objects.filter { it.index == selectedIndex && !it.overlay }
+                val box = volumes.filter { !it.modifier }.map(SceneObject::bounds).reduceOrNull(Box3::merge) ?: return null
+                heightRangeCursorFrame(cursor, hit, box, volumes.map { it.mesh to it.world }, density)
+            }
+        }
     }
 
     /**
@@ -1746,6 +1919,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private var strokeX = 0f
     private var strokeY = 0f
 
+    /** Where the stroke's last touch was on the screen (m_last_mouse_click), which its path goes back to. */
+    private var lastStrokeX = 0f
+    private var lastStrokeY = 0f
+
     fun setVerticalOnly(vertical: Boolean) {
         verticalOnly = vertical
     }
@@ -1796,13 +1973,16 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private fun volumeMode(): String? = selectedVolume?.takeIf { gizmo != PlateGizmo.LAY_ON_FACE }
 
     /**
-     * What the gizmos stand around: the selected volume, the selected copy, or
-     * the first copy of a group, whose gizmos take the box of them all.
+     * What the gizmos stand around: the selected volume, the selected copy,
+     * the first copy of a group, whose gizmos take the box of them all, or
+     * the wipe tower picked alone (Selection::is_wipe_tower()), whose
+     * volumes move together.
      */
     private fun selectedTarget(): SceneObject? =
         volumeMode()?.let { key -> objects.firstOrNull { it.index == selectedIndex && it.key == key } }
             ?: objects.firstOrNull { it.index == selectedIndex }
             ?: groupIndexes()?.first()?.let { first -> objects.firstOrNull { it.index == first } }
+            ?: objects.firstOrNull { it.index == WIPE_TOWER_INDEX }?.takeIf { selectedIndex == null && selectedIndexes == setOf(WIPE_TOWER_INDEX) }
 
     /** What [drag] moves: its volume, or the copy. */
     private fun targetOf(drag: Drag): SceneObject? =
@@ -1881,15 +2061,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             // it; off the object the finger turns the camera, as the gizmo
             // leaves the mouse to the canvas.
             val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return false
-            // The raycasters of the object's model parts, which pass by what the
-            // section clips and, but in the assembly view, what sinks under the plate.
-            val plane = paintSectionPlane?.takeIf { (paintSection?.position ?: 0.0) > 0.0 }
-            val clipped = { point: Vec3 -> plane != null && plane.first.dot(point) > plane.second }
-            if (objects.none { it.index == selectedIndex && !it.modifier && !it.overlay && it.unproject(ray, assembly == null, clipped) != null }) return false
+            val hit = paintedHit(ray) ?: return false
             paintingStroke = true
             strokeX = x
             strokeY = y
-            onPaint(ray, true)
+            lastStrokeX = x
+            lastStrokeY = y
+            showPaintCursor(x, y, hit)
+            onPaint(listOf(ray), true)
             return true
         }
         textDrag?.let { text ->
@@ -1919,7 +2098,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                 PlateGizmo.ROTATE -> rotationSphere(target)?.let { (center, radius) -> RotateGrabberDrag(target.index, target.world, axis, center, radius, volumeMode()) }
                 PlateGizmo.SCALE -> scaleGizmo(target)?.let {
                     val key = volumeMode()
-                    ScaleGrabberDrag(target.index, target.world, axis, it.grabberCenter(axis), it.grabberCenter(4), it.center, key, key?.let { volumeScaling(target) })
+                    val scaling = if (key != null) volumeScaling(target) else if (groupIndexes() == null) instanceScaling(target) else null
+                    ScaleGrabberDrag(target.index, target.world, axis, it.grabberCenter(axis), it.grabberCenter(4), it.center, key, scaling)
                 }
                 else -> moveGizmo(target).let { MoveGrabberDrag(target.index, target.world, axis, it.grabberCenter(axis), it.center, volumeMode()) }
             }
@@ -2012,10 +2192,14 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             // The brush follows the finger, as the desktop gizmo paints while
             // the left button is held; "Vertical" keeps the finger's x where
             // the stroke started (_mouse_position.x() = m_last_mouse_click.x()),
-            // "Horizontal" its y.
+            // "Horizontal" its y. The cursor stays at the finger.
             val column = if (verticalOnly) strokeX else x
             val row = if (horizontalOnly) strokeY else y
-            camera.mouseRay(column.toDouble(), row.toDouble())?.let { onPaint(it, false) }
+            if (paintCursor != null) showPaintCursor(x, y, camera.mouseRay(x.toDouble(), y.toDouble())?.let(::paintedHit))
+            val rays = strokeRays(column, row) ?: return
+            lastStrokeX = column
+            lastStrokeY = row
+            onPaint(rays, false)
             return
         }
         val drag = drag ?: return
@@ -2055,6 +2239,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             // GLGizmoRotate3D::on_mouse(): the object turns about the sphere's centre by the ring's angle.
             drag.angle = RotateGizmo(drag.center, drag.sphereRadius, pixel()).dragAngle(drag.axis, ray)
             drag.moved = true
+            // GLGizmoRotate::get_tooltip(): the ring's angle in degrees.
+            showGizmoHint(x, y, "${AXIS_NAMES[drag.axis]}: ${hintNumber(Math.toDegrees(drag.angle), 2)}")
             replaceObject(target.withWorld(RotateGizmo.rotated(drag.startWorld, drag.axis, drag.angle, drag.center)), alone = drag.key != null)
             // Selection::rotate() in world coordinates: the group turns about its sphere's centre.
             drag.group.forEach { (index, start) ->
@@ -2084,6 +2270,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             drag.group.forEach { (index, start) ->
                 objects.firstOrNull { it.index == index }?.let { replaceObject(it.withWorld(ScaleGizmo.scaled(start, scale, drag.center))) }
             }
+            showGizmoHint(x, y, scaleHint(drag, world))
             return
         }
         val offset = when (drag) {
@@ -2104,7 +2291,54 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         drag.together().forEach { (index, start) ->
             objects.firstOrNull { it.index == index }?.let { replaceObject(it.withWorld(start.withTranslation(start.translation() + offset))) }
         }
+        if (drag is MoveGrabberDrag) {
+            // GLGizmoMove3D::get_tooltip(): the centre of the box of a single full instance, else the displacement.
+            val value = if (drag.key == null && drag.group.isEmpty() && drag.index != WIPE_TOWER_INDEX) {
+                objects.filter { it.index == drag.index && !it.overlay }.map(SceneObject::bounds).reduceOrNull(Box3::merge)?.center()?.component(drag.axis) ?: 0.0
+            } else {
+                offset.dot((drag.startGrabber - drag.startCenter).normalized())
+            }
+            showGizmoHint(x, y, "${AXIS_NAMES[drag.axis]}: ${hintNumber(value, 2)}")
+        }
     }
+
+    /** The gizmo's value while its grabber is dragged, over the finger at ([x], [y]). */
+    private fun showGizmoHint(x: Float, y: Float, text: String) {
+        gizmoHintState.value = GizmoHint(text, Offset(x, y))
+    }
+
+    /**
+     * GLGizmoScale3D::get_tooltip(): the scaling factor of a single full
+     * instance, or of a single volume, in percent (100 for anything else),
+     * along the dragged grabber's axis, or along all three for a corner; the
+     * object stands at [world].
+     */
+    private fun scaleHint(drag: ScaleGrabberDrag, world: Affine3): String {
+        val factor = when {
+            drag.group.isNotEmpty() -> Vector3(1.0, 1.0, 1.0)
+            drag.key == null -> Transform3(world.elements().toList()).scalingFactor()
+            else -> volumeScale?.let { frame ->
+                // ModelVolume's own transformation: the change in the world, brought into the copy.
+                val instance = Affine3(frame.instance.columns.toDoubleArray())
+                val volume = Affine3(frame.volume.columns.toDoubleArray())
+                Transform3((instance.inverse() * world * drag.startWorld.inverse() * instance * volume).elements().toList()).scalingFactor()
+            } ?: Vector3(1.0, 1.0, 1.0)
+        }
+        val percent = Vec3(factor.x * 100.0, factor.y * 100.0, factor.z * 100.0)
+        return when (drag.id) {
+            0, 1, 2, 3, 4, 5 -> "${AXIS_NAMES[drag.id / 2]}: ${hintNumber(percent.component(drag.id / 2), 4)}%"
+            else -> (0 until 3).joinToString("\n") { axis -> "${AXIS_NAMES[axis]}: ${hintNumber(percent.component(axis), 2)}%" }
+        }
+    }
+
+    private fun Vec3.component(axis: Int) = when (axis) {
+        0 -> x
+        1 -> y
+        else -> z
+    }
+
+    /** GLGizmoBase::format(): "%.*f". */
+    private fun hintNumber(value: Double, decimals: Int) = String.format(Locale.ROOT, "%.${decimals}f", value)
 
     private fun objectOffset(drag: ObjectDrag, ray: Line3): Vec3? {
         val start = drag.startPosition
@@ -2131,6 +2365,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
      */
     /** The finger let go, or [cancelled] as another finger came. */
     fun endMove(cancelled: Boolean = false) {
+        gizmoHintState.value = null
         brimRay?.let { ray ->
             brimRay = null
             onBrimEars(if (cancelled) BrimEarsTouch.Leave else BrimEarsTouch.Place(ray.a.toVector(), (ray.b - ray.a).toVector()))
@@ -2153,6 +2388,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         }
         if (paintingStroke) {
             paintingStroke = false
+            clearPaintCursor()
+            invalidate()
             return
         }
         val drag = drag ?: return
@@ -2822,6 +3059,23 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     }
 
     /**
+     * GLCanvas3D::on_mouse()'s double click on m_hover_volume_idxs: the volume
+     * under the finger at ([x], [y]) goes to the page, which opens the text
+     * or SVG tool on a text or an SVG. Not in the assembly view, whose canvas
+     * has no such tools.
+     */
+    fun doubleTap(x: Float, y: Float) {
+        if (assembly != null) return
+        val ray = camera.mouseRay(x.toDouble(), y.toDouble()) ?: return
+        val volume = objects
+            .mapNotNull { sceneObject -> sceneObject.raycast(ray)?.let { sceneObject to it } }
+            .minByOrNull { (_, hit) -> (hit - ray.a).norm() }
+            ?.first ?: return
+        if (volume.index == WIPE_TOWER_INDEX) return
+        onDoubleTapVolume(volume.index, volume.paintedOn ?: volume.key)
+    }
+
+    /**
      * OrcaSlicer's plate view: from the front and above, framing the current
      * plate (GLCanvas3D::zoom_to_plate); the assembly view, which has no plate,
      * frames its volumes as its zoom button does with nothing selected.
@@ -2864,7 +3118,11 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             PlateGizmo.SCALE -> scaleGizmo(target)?.let { scale -> { id: Int -> scale.grabberCenter(id).let { it to it } } } ?: return null
             PlateGizmo.LAY_ON_FACE, null -> return null
         }
-        val grabbers = if (gizmo == PlateGizmo.SCALE) ScaleGizmo.grabbers(groupIndexes() != null && groupUniformScale) else listOf(0, 1, 2)
+        val grabbers = when (gizmo) {
+            PlateGizmo.SCALE -> ScaleGizmo.grabbers(groupIndexes() != null && groupUniformScale)
+            PlateGizmo.MOVE -> moveGizmo(target).axes
+            else -> listOf(0, 1, 2)
+        }
         return grabbers
             .mapNotNull { axis ->
                 val (from, to) = ends(axis)
@@ -2938,7 +3196,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             return true
         }
         val ray = camera.mouseRay(x, y) ?: return false
-        val hit = gizmo.planeHit(ray, open.dovetail) ?: return false
+        val hit = gizmo.planeHit(ray, open.dovetail, open.groovePlane?.value?.let(cutPartMeshes::get)?.cornerPositions()) ?: return false
         drag = CutDrag(index, CutGrabber.PLANE, gizmo.plane, hit)
         invalidate()
         return true
@@ -3044,6 +3302,10 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private fun moveGizmo(target: SceneObject): MoveGizmo {
         // A group moves in world coordinates on the box of all its copies.
         groupIndexes()?.let(::groupBox)?.let { return MoveGizmo(it, pixel()) }
+        // The wipe tower on the box of its volumes, along X and Y alone (data_changed()).
+        if (target.index == WIPE_TOWER_INDEX) {
+            return MoveGizmo(wipeTower.map(SceneObject::bounds).reduceOrNull(Box3::merge) ?: target.bounds, pixel(), axes = listOf(0, 1))
+        }
         val placement = moveFrame ?: return MoveGizmo(target.bounds, pixel())
         val rotation = Affine3(AssemblyTransforms.rotation(Transform3(placement.elements().toList())).columns.toDoubleArray())
         return MoveGizmo(target.mesh.bounds.transformed(rotation.inverse() * target.world), pixel(), rotation, placement)
@@ -3060,13 +3322,18 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
     private fun rotateGizmo(target: SceneObject): RotateGizmo? = rotationSphere(target)?.let { (center, radius) -> RotateGizmo(center, radius, pixel()) }
 
     /**
-     * Around the copy's box in the world, or the selected volume's box in its
+     * Around the copy's box in the world, or in object coordinates along the
+     * copy's axes (Selection::get_bounding_box_in_current_reference_system()
+     * of ECoordinatesType::Instance), or the selected volume's box in its
      * reference system once the engine measured it, scaled as far as a drag
      * of it has gone.
      */
     private fun scaleGizmo(target: SceneObject): ScaleGizmo? {
         groupIndexes()?.let { indexes -> return groupBox(indexes)?.let { ScaleGizmo(it, pixel()) } }
-        if (volumeMode() == null) return ScaleGizmo(target.bounds, pixel())
+        if (volumeMode() == null) {
+            val rotation = instanceFrame() ?: return ScaleGizmo(target.bounds, pixel())
+            return ScaleGizmo(target.mesh.bounds.transformed(rotation.inverse() * target.world), pixel(), rotation)
+        }
         val held = drag as? ScaleGrabberDrag
         val volume = held?.volume ?: return volumeScaling(target)?.let { ScaleGizmo(it.box, pixel(), it.frame) }
         val origin = volume.frame.inverse().transformPoint(volume.origin)
@@ -3076,6 +3343,20 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             origin.z + (point.z - origin.z) * held.scale.z,
         )
         return ScaleGizmo(Box3(scaled(volume.box.min), scaled(volume.box.max)), pixel(), volume.frame)
+    }
+
+    /** The rotation of the copy's placement in object coordinates, which its scale gizmo stands along; null in the world's. */
+    private fun instanceFrame(): Affine3? =
+        moveFrame?.let { Affine3(AssemblyTransforms.rotation(Transform3(it.elements().toList())).columns.toDoubleArray()) }
+
+    /**
+     * Selection::scale_and_translate() of a copy in object coordinates
+     * (TransformationType::Instance): along its own axes, about the centre of
+     * its box in the world (m_cache.dragging_center); null in the world's.
+     */
+    private fun instanceScaling(target: SceneObject): VolumeScaling? {
+        val rotation = instanceFrame() ?: return null
+        return VolumeScaling(rotation, target.bounds.center(), rotation, target.mesh.bounds.transformed(rotation.inverse() * target.world))
     }
 
     /** The selected volume's scaling as the window's coordinates have it, from the volume [target] as it stands. */
@@ -3304,6 +3585,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                     }
                 }.orEmpty(),
                 assembly = assembly != null,
+                // GLCanvas3D::_render(): no bed and no plates under a painting tool.
+                platesHidden = painting,
                 section = sectionCut?.takeIf { assemblyClippingPlane() != null } ?: paintSectionCut?.takeIf { paintingClippingPlane() != null },
                 // set_show_sinking_contours(): not in the assembly view, nor while a tool hides the other copies (is_hiding_instances()).
                 sinkingContours = assembly == null && !painting && cut == null && brimEars == null && meshBoolean == null,
@@ -3349,7 +3632,8 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
                     )
                 },
                 parts = open.previewParts.map { part -> part to cutPartMeshes[part.mesh.value] },
-                line = (drag as? CutLineDrag)?.takeIf { it.moved }?.let { it.begin to it.end },
+                // cut_line_processing() from the press on.
+                line = (drag as? CutLineDrag)?.let { it.begin to it.end },
                 pixelScale = density,
             )
         }
@@ -3358,6 +3642,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
             val turning = drag as? TextRotateDrag
             (turning?.ring ?: textRing(text))?.let { ring -> return ring.textFrame(turning != null, turning?.angle ?: (0.5 * PI), density) }
         }
+        if (painting) return paintCursorFrame()
         val target = selectedTarget() ?: return null
         return when (gizmo) {
             PlateGizmo.MOVE -> moveGizmo(target).frame((drag as? MoveGrabberDrag)?.axis, density)
@@ -3517,6 +3802,8 @@ data class PaintingView(
     val section: PaintSectionView? = null,
     /** "Horizontal" (m_horizontal_only): a stroke keeps to the screen row where it met the model. */
     val horizontalOnly: Boolean = false,
+    /** The brush cursor drawn where a finger paints; null for a tool without one. */
+    val cursor: PaintCursor? = null,
 )
 
 /**

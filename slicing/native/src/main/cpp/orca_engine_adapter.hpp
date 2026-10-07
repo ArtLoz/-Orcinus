@@ -1068,6 +1068,10 @@ struct PaintStroke {
     // The finger's ray in world coordinates, as the 3D view casts it.
     double origin[3]{0.0, 0.0, 0.0};
     double direction[3]{0.0, 0.0, 0.0};
+    // The rays of the finger's path on the screen back to where its last
+    // touch was, that one last, an origin and a direction each, six numbers
+    // apart (get_projected_mouse_positions()'s mouse positions after the first).
+    std::vector<double> path;
     // The state to paint (EnforcerBlockerType): the filament, 1-based, for
     // colour; ENFORCER (1) or BLOCKER (2) for supports and the seam;
     // FUZZY_SKIN (1) for fuzzy skin. NONE (0) takes the paint off again.

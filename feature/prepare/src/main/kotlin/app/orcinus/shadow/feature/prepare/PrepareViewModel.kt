@@ -52,6 +52,7 @@ import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PaintKind
 import app.orcinus.shadow.core.model.PaintPlacement
+import app.orcinus.shadow.core.model.PaintRay
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintTool
 import app.orcinus.shadow.core.model.PaintingOutcome
@@ -184,6 +185,7 @@ import app.orcinus.shadow.domain.plate.layerEditingObject
 import app.orcinus.shadow.domain.plate.makeUniqueName
 import app.orcinus.shadow.domain.plate.measuredVolumes
 import app.orcinus.shadow.domain.plate.selectedEmbossVolume
+import app.orcinus.shadow.domain.plate.supportThresholdAngle
 import app.orcinus.shadow.domain.plate.toggledBold
 import app.orcinus.shadow.domain.plate.toggledItalic
 import app.orcinus.shadow.domain.plate.withFamily
@@ -329,6 +331,9 @@ class PrepareViewModel(
     /** A stroke began with a touch that was dropped: the next touch sent starts it. */
     private var strokeStarts = false
 
+    /** The rays of the touches dropped since the last one sent, the latest first, which the next one paints along. */
+    private var droppedPath: List<PaintRay> = emptyList()
+
     /** The painting tool closing, which the next one waits for. */
     private var closingPainting: Job? = null
 
@@ -343,6 +348,15 @@ class PrepareViewModel(
 
     /** The cut gizmo as it was left, which it opens with again (the gizmo's members outlive it). */
     private var lastCut: CutMode? = null
+
+    /** ModelObject::cut_connectors of the objects the gizmo left, by their mesh, where they stand from the copy. */
+    private val cutConnectors = HashMap<ScenePath, List<CutConnector>>()
+
+    /** A connector is being dragged, its snapshot taken ("Move connector"). */
+    private var cutConnectorMoving = false
+
+    /** The "Rotation" slider of the connectors' window is being changed, its snapshot taken. */
+    private var editingCutConnectorAngle = false
 
     /** GLGizmoBase::INV_ZOOM of the 3D view: millimetres per desktop pixel at its target. */
     private var viewPixel = 0.1
@@ -400,6 +414,16 @@ class PrepareViewModel(
 
     /** The brim ears tool's touches, which the engine works through in their order. */
     private val brimEarsTouches = Channel<BrimEarsTouch>(Channel.UNLIMITED)
+
+    /** The brim ears tool as it was left, whose parameters it opens with again (the gizmo's members outlive it). */
+    private var brimEarsLeft: BrimEarsMode? = null
+
+    /** GLGizmoAssembly's m_assembly_mode and m_flip_volume_2, which the gizmo keeps from one opening to the next. */
+    private var assemblyMode = AssemblyMode.FACE_FACE
+    private var assemblyFlip = false
+
+    /** The selection the tools were refreshed by last (GLGizmosManager::refresh_on_off_state()). */
+    private var refreshedTools: ToolActivity? = null
     private val view = MutableStateFlow(PrepareViewState())
 
     /**
@@ -439,6 +463,8 @@ class PrepareViewModel(
         }
         // GLGizmosManager::get_current_type(): the plate knows while a tool is open.
         viewModelScope.launch { view.map { it.gizmoOpen }.distinctUntilChanged().collect { setGizmoOpen(it) } }
+        // GLGizmosManager::refresh_on_off_state() whenever the selection changes.
+        viewModelScope.launch { combine(plate, view, PlateState::toolActivity).distinctUntilChanged().collect(::refreshTools) }
         // GLGizmoMeshBoolean::on_save(): the snapshots keep the mesh boolean tool's picks ...
         viewModelScope.launch { view.map { it.meshBooleanPicks() }.distinctUntilChanged().collect { setGizmoOpen.meshBoolean(it) } }
         // ... and on_load() after Undo or Redo opens it again with them, or closes it.
@@ -493,7 +519,7 @@ class PrepareViewModel(
                 view.value.text?.takeUnless { it.busy }?.let { open ->
                     val selected = plate.value.selectedEmbossVolume(EmbossKind.TEXT)
                     when {
-                        selected == null -> closeText()
+                        selected == null -> leaveText()
                         selected != open.volume -> openText(selected)
                     }
                 }
@@ -662,11 +688,8 @@ class PrepareViewModel(
                         is BrimEarsOutcome.Success -> view.update { state ->
                             state.brimEars?.let { mode ->
                                 state.copy(
-                                    brimEars = mode.copy(
-                                        setup = outcome.setup,
-                                        headDiameter = mode.headDiameter ?: outcome.setup.defaultHeadDiameter,
-                                        detectionRadius = mode.detectionRadius.coerceAtMost(outcome.setup.detectionRadiusMax),
-                                    ),
+                                    // m_detection_radius stays as it was left; its slider and box keep to the object's maximum.
+                                    brimEars = mode.copy(setup = outcome.setup, headDiameter = mode.headDiameter ?: outcome.setup.defaultHeadDiameter),
                                 )
                             } ?: state
                         }
@@ -920,7 +943,10 @@ class PrepareViewModel(
      * up work.
      */
     fun togglePainting(kind: PaintKind = PaintKind.COLOR) {
+        // open_gizmo(): a tool the selection can't take does not open.
+        if (view.value.painting?.kind != kind && !(if (kind == PaintKind.COLOR) state.value.canPaint else state.value.canPaintFacets)) return
         closeCut()
+        closeMeshBoolean()
         closeEmbossTools()
         editLayerHeights.enable(false)
         val open = view.value.painting
@@ -935,13 +961,11 @@ class PrepareViewModel(
         // _render_assemble_control() of colour painting: the section goes back to 0.
         if (view.value.assemblyView) view.update { it.copy(sectionPosition = 0.0, assemblySection = null) }
         openSimplify.close()
-        // GLGizmoFdmSupports::on_shutdown() left the highlight at 0.
-        val mode = paintingTools[kind]?.copy(mesh = mesh, painted = false, canUndo = false, canRedo = false, highlightAngle = 0.0) ?: PaintingMode(
-            mesh = mesh,
-            kind = kind,
-            // GLGizmoFdmSupports paints with the circle, the colour tool with the sphere.
-            tool = if (kind == PaintKind.COLOR) PaintTool.BRUSH else PaintTool.CIRCLE,
-        )
+        // GLGizmoFdmSupports::on_render_input_window() of a tool just opened (m_support_threshold_angle
+        // is -1): the highlight starts from the auto supports' threshold angle; the others' stays at 0.
+        val highlight = if (kind == PaintKind.SUPPORTS) plate.value.supportThresholdAngle(copy.plateObject).toDouble() else 0.0
+        val mode = paintingTools[kind]?.copy(mesh = mesh, painted = false, canUndo = false, canRedo = false, highlightAngle = highlight)
+            ?: PaintingMode(mesh = mesh, kind = kind, highlightAngle = highlight)
         view.update { it.copy(painting = mode, gizmo = null) }
         val closing = closingPainting
         viewModelScope.launch {
@@ -957,7 +981,7 @@ class PrepareViewModel(
     /** check_gizmos_closed_except(): the gizmo opens once no other tool of the canvas is. */
     private fun startSimplify(volume: ObjectPartId) {
         val current = view.value
-        if (current.painting != null || current.gizmo != null || current.cut != null) {
+        if (current.copy(simplify = null).gizmoOpen) {
             openSimplify.refuse()
             return
         }
@@ -1017,6 +1041,9 @@ class PrepareViewModel(
     override fun onCleared() {
         // The gizmo's mesh file goes with the screen that showed it.
         view.value.simplify?.preview?.let(previewSimplify::discard)
+        // The tools' stacks go with the screen: the main stack is the active one again.
+        if (view.value.brimEars != null) brimEarsTool.leave()
+        measureFeatures.leave()
         setGizmoOpen(false)
     }
 
@@ -1130,8 +1157,9 @@ class PrepareViewModel(
         if (view.value.cut != null) return closeCut()
         val state = state.value
         val copy = state.sceneCopies.getOrNull(state.selectedObject ?: -1) ?: return
-        if (!state.canManipulate) return
+        if (!state.canCut) return
         closePainting()
+        closeMeshBoolean()
         openSimplify.close()
         closeEmbossTools()
         editLayerHeights.enable(false)
@@ -1159,6 +1187,12 @@ class PrepareViewModel(
                 return@launch
             }
             val kept = left?.takeIf { it.mesh == mode.mesh && it.instance == mode.instance && it.boundsMin == outcome.min && it.boundsMax == outcome.max }
+            // ModelObject::cut_connectors: the object keeps its connectors while the gizmo is closed, where
+            // they stand from its copy (CutConnector::pos with the instance's offset).
+            val connectors = cutConnectors[mode.mesh].orEmpty().map { connector ->
+                val at = connector.position
+                connector.copy(position = Vector3(at.x + mode.instanceOffset.x, at.y + mode.instanceOffset.y, at.z + mode.instanceOffset.z))
+            }
             // update_bb(): a new box gives the grooves their first size, half the
             // mean grabber size (32 desktop pixels) deep and four times as wide.
             val depth = maxOf(1.0, 0.5 * 32.0 * viewPixel)
@@ -1172,14 +1206,25 @@ class PrepareViewModel(
             val bounds = mode.copy(
                 boundsMin = outcome.min,
                 boundsMax = outcome.max,
-                kind = left?.kind ?: CutKind.PLANAR,
+                // update_bb(): a new box of an object with connectors takes the planar cut.
+                kind = if (kept == null && connectors.isNotEmpty()) CutKind.PLANAR else left?.kind ?: CutKind.PLANAR,
                 groove = groove,
                 grooveInit = kept?.grooveInit ?: grooveInit,
             )
             val plane = kept?.plane ?: CutPlanes.at(bounds.boundsCenter ?: return@launch)
-            // The object keeps its connectors while the gizmo is closed (ModelObject::cut_connectors).
-            val opened = bounds.copy(plane = plane, connectors = kept?.connectors.orEmpty(), snapSpace = left?.snapSpace ?: CutMode.SNAP_SPACE, snapBulge = left?.snapBulge ?: CutMode.SNAP_BULGE)
-                .let { it.copy(snapshots = listOf(it.current()), snapshot = 0) }
+            val opened = bounds.copy(
+                plane = plane,
+                archivedPlane = plane,
+                // update_clipper(): put_connectors_on_cut_plane().
+                connectors = onPlane(connectors, plane),
+                // on_set_state(): m_connectors_editing = !m_selected.empty(), which update_bb() of a new box
+                // sized to the object's connectors and the gizmo's closing cleared otherwise.
+                editingConnectors = kept == null && connectors.isNotEmpty(),
+                // The gizmo keeps what its connectors' window adds, and the snaps' proportions, from one opening to the next.
+                connectorSettings = left?.connectorSettings?.validated() ?: CutConnectorSettings(),
+                snapSpace = left?.snapSpace ?: CutMode.SNAP_SPACE,
+                snapBulge = left?.snapBulge ?: CutMode.SNAP_BULGE,
+            )
             view.update { state -> if (state.cut?.mesh == mode.mesh && state.cut.instance == mode.instance) state.copy(cut = opened) else state }
             cutPlanes.trySend(opened)
         }
@@ -1188,7 +1233,15 @@ class PrepareViewModel(
     /** "Cancel" (reset_all_gizmos()): the gizmo closes, and the engine lets its object go. */
     fun closeCut() {
         val open = view.value.cut ?: return
-        if (open.plane != null) lastCut = open
+        cutConnectorMoving = false
+        editingCutConnectorAngle = false
+        if (open.plane != null) {
+            lastCut = open
+            cutConnectors[open.mesh] = open.connectors.map { connector ->
+                val at = connector.position
+                connector.copy(position = Vector3(at.x - open.instanceOffset.x, at.y - open.instanceOffset.y, at.z - open.instanceOffset.z))
+            }
+        }
         view.update { it.copy(cut = null) }
         val opening = openingCut
         closingCut = viewModelScope.launch {
@@ -1201,13 +1254,14 @@ class PrepareViewModel(
      * The plane a grabber of the 3D view moved or turned the cut to
      * (on_dragging()); the plane keeps within reach of the object as
      * set_center_pos() keeps it. [finished] once the finger let go, which takes
-     * the gizmo's snapshot ("Move cut plane", "Rotate cut plane").
+     * the gizmo's snapshot ("Move cut plane", "Rotate cut plane") of the plane
+     * as the drag found it (on_stop_dragging()).
      */
     fun setCutPlane(plane: Transform3, finished: Boolean) {
         val mode = view.value.cut ?: return
         val current = mode.plane ?: return
         val placed = if (CutPlanes.sameRotation(plane, current)) movedCut(mode, CutPlanes.center(plane)) ?: current else plane
-        updateCut(finished) { it.copy(plane = placed, shaping = !finished) }
+        updateCut(snapshot = finished, archive = finished) { it.copy(plane = placed, shaping = !finished) }
     }
 
     /** A tap on the plane outside the section: flip_cut_plane(), which turns the pieces over too (turn_over_selection()). */
@@ -1278,10 +1332,16 @@ class PrepareViewModel(
         updateCut(snapshot = true) { it.copy(plane = moved) }
     }
 
-    /** "Reset cutting plane", and "Reset", which also takes the connectors off: reset_cut_plane(). */
+    /** "Reset cutting plane": reset_cut_plane(). */
     fun resetCutPlane() {
         val center = view.value.cut?.boundsCenter ?: return
         updateCut(snapshot = true) { it.copy(plane = CutPlanes.at(center)) }
+    }
+
+    /** "Reset" of the planar cut ("Reset Cut"): reset_cut_plane() and reset_connectors(), one step of Undo. */
+    fun resetCut() {
+        val center = view.value.cut?.boundsCenter ?: return
+        updateCut(snapshot = true) { it.copy(plane = CutPlanes.at(center), connectors = emptyList()).withSelection(emptySet()) }
     }
 
     /** "Keep" of the upper part and of the lower part. */
@@ -1369,9 +1429,11 @@ class PrepareViewModel(
     /**
      * The groove's inputs: its depth and width with their tolerances, the flap
      * and groove angles, the count and the gap; [finished] once a slider is let
-     * go, which works the parts out again (m_is_slider_editing_done).
+     * go, which works the parts out again (m_is_slider_editing_done). A slider
+     * takes its snapshot as it begins to change ("Groove change: <label>",
+     * "Edited: <label>"); the count's field takes none.
      */
-    fun setCutGroove(finished: Boolean, change: (CutGroove) -> CutGroove) = updateCut(snapshot = finished) { cut ->
+    fun setCutGroove(finished: Boolean, change: (CutGroove) -> CutGroove) = updateCut(snapshot = !finished && view.value.cut?.shaping == false) { cut ->
         val groove = change(cut.groove).let { it.copy(count = it.count.coerceIn(1, 100)) }
         cut.copy(groove = groove, shaping = !finished)
     }
@@ -1405,6 +1467,7 @@ class PrepareViewModel(
      */
     fun cutConnectorEvent(event: CutConnectorEvent) {
         val mode = view.value.cut?.takeIf { it.editingConnectors } ?: return
+        if (event !is CutConnectorEvent.Move) cutConnectorMoving = false
         when (event) {
             is CutConnectorEvent.Add -> updateCut(snapshot = true) { cut ->
                 val settings = cut.withSelection(emptySet()).connectorSettings
@@ -1429,13 +1492,20 @@ class PrepareViewModel(
                 }
                 cut.withSelection(selected)
             }
-            is CutConnectorEvent.Move -> updateCut(snapshot = event.finished) { cut ->
-                if (event.index !in cut.connectors.indices) return@updateCut cut
+            is CutConnectorEvent.Move -> dragCutConnector(event.finished) { cut ->
+                if (event.index !in cut.connectors.indices) return@dragCutConnector cut
                 val moved = cut.connectors.toMutableList().also { it[event.index] = it[event.index].copy(position = event.position) }
                 cut.copy(connectors = moved).let { if (event.finished) it.withSelection(setOf(event.index)) else it }
             }
             CutConnectorEvent.Deselect -> if (mode.selectedConnectors.isNotEmpty()) updateCut(snapshot = false) { it.withSelection(emptySet()) }
         }
+    }
+
+    /** A connector dragged: the snapshot "Move connector" as the drag begins (on_start_dragging()). */
+    private fun dragCutConnector(finished: Boolean, change: (CutMode) -> CutMode) {
+        val first = !finished && !cutConnectorMoving
+        cutConnectorMoving = !finished
+        updateCut(snapshot = first, change = change)
     }
 
     /** Ctrl+A of the desktop: "Select all connectors". */
@@ -1454,7 +1524,27 @@ class PrepareViewModel(
      * The connectors' window sets what it adds, and the selected connectors
      * with it (apply_selected_connectors()): a dowel is a prism, a snap round.
      */
-    fun setCutConnectorSettings(change: (CutConnectorSettings) -> CutConnectorSettings) = updateCut(snapshot = false) { cut ->
+    fun setCutConnectorSettings(change: (CutConnectorSettings) -> CutConnectorSettings) = updateCut(snapshot = false) { cut -> withConnectorSettings(cut, change) }
+
+    /**
+     * render_angle_input() of "Rotation": its slider takes the snapshot
+     * "Edited: Rotation" as it begins to change; its reset takes "Reset: Rotation".
+     */
+    fun setCutConnectorAngle(angle: Double) {
+        val first = !editingCutConnectorAngle
+        editingCutConnectorAngle = true
+        updateCut(snapshot = first) { cut -> withConnectorSettings(cut) { it.copy(angle = angle) } }
+    }
+
+    fun resetCutConnectorAngle() = updateCut(snapshot = true) { cut -> withConnectorSettings(cut) { it.copy(angle = 0.0) } }
+
+    /** A slider of the connectors' window let go. */
+    fun finishCutConnectorEdit() {
+        editingCutConnectorAngle = false
+    }
+
+    /** The connectors' window sets what it adds, and the selected connectors with it. */
+    private fun withConnectorSettings(cut: CutMode, change: (CutConnectorSettings) -> CutConnectorSettings): CutMode {
         val before = cut.connectorSettings
         var settings = change(before)
         if (settings.type != before.type && settings.type == CutConnectorType.DOWEL) settings = settings.copy(style = CutConnectorStyle.PRISM)
@@ -1472,14 +1562,11 @@ class PrepareViewModel(
                 zAngle = settings.angle ?: connector.zAngle,
             )
         }
-        cut.copy(connectorSettings = settings, connectors = connectors)
+        return cut.copy(connectorSettings = settings, connectors = connectors)
     }
 
-    /** "Bulge" and "Space" of the snaps, proportions of their radius. */
+    /** "Bulge" and "Space" of the snaps, proportions of their radius, and their resets (render_snap_specific_input()), which take no snapshot. */
     fun setCutSnap(space: Double, bulge: Double) = updateCut(snapshot = false) { it.copy(snapSpace = space, snapBulge = bulge) }
-
-    /** A slider of the connectors' window let go, or its reset ("Edited: <label>", "Reset: <label>"). */
-    fun snapshotCutConnectors() = updateCut(snapshot = true) { it }
 
     /** set_center_pos(center, true): the plane at [center], or null where it would leave the object behind. */
     private fun movedCut(mode: CutMode, center: Vector3): Transform3? {
@@ -1496,28 +1583,31 @@ class PrepareViewModel(
     }
 
     /**
-     * A change of the cut gizmo; [snapshot] takes the gizmo's snapshot. A plane
-     * moved takes the connectors along onto it (put_connectors_on_cut_plane()),
-     * and a plane or connectors changed are described anew.
+     * A change of the cut gizmo; [snapshot] takes the gizmo's snapshot before
+     * it (Plater::TakeSnapshot), and unless the change is still being dragged
+     * ([archive] off) the plane it leaves is the one the next snapshot keeps.
+     * A plane moved takes the connectors along onto it
+     * (put_connectors_on_cut_plane()), and a plane or connectors changed are
+     * described anew.
      */
-    private fun updateCut(snapshot: Boolean, change: (CutMode) -> CutMode) {
+    private fun updateCut(snapshot: Boolean, archive: Boolean = true, change: (CutMode) -> CutMode) {
         val before = view.value.cut ?: return
         view.update { state ->
             state.cut?.let { mode ->
-                change(mode)
+                change(if (snapshot) mode.snapshotted() else mode)
                     .let { changed -> if (changed.plane != mode.plane) changed.copy(connectors = onPlane(changed.connectors, changed.plane)) else changed }
                     // A plane moved or turned takes the pieces away (reset_cut_by_contours()); a flip turns them over itself.
                     .let { changed -> if (changed.plane != mode.plane && changed.parts === mode.parts) changed.copy(parts = null, partsPlane = null) else changed }
-                    .let { if (snapshot) it.snapshotted() else it }
+                    .let { if (archive) it.copy(archivedPlane = it.plane) else it }
             }?.let { state.copy(cut = it) } ?: state
         }
         describeCut(before)
     }
 
-    /** Undo and Redo while the cut gizmo is open: its snapshot at [index]. */
-    private fun restoreCut(index: Int) {
+    /** Undo and Redo while the cut gizmo is open, on its own snapshots. */
+    private fun restoreCut(restore: (CutMode) -> CutMode) {
         val before = view.value.cut ?: return
-        view.update { state -> state.cut?.let { state.copy(cut = it.restored(index)) } ?: state }
+        view.update { state -> state.cut?.let { state.copy(cut = restore(it)) } ?: state }
         describeCut(before)
     }
 
@@ -1609,26 +1699,39 @@ class PrepareViewModel(
     }
 
     /**
-     * A touch of the finger; [starts] marks the first of a stroke. A touch that
-     * arrives while the last one is still painted is dropped, but the start of
-     * a stroke is carried to the next touch sent, so the tool keeps what its
-     * Undo returns to.
+     * A touch of the finger: [rays] are where it is, then its path on the
+     * screen back to its last touch (get_projected_mouse_positions());
+     * [starts] marks the first of a stroke. A touch that arrives while the
+     * last one is still painted is dropped, but its path is carried to the
+     * next touch sent, so the stroke follows the finger's whole path, and so
+     * is the start of a stroke, so the tool keeps what its Undo returns to.
      */
-    fun paint(origin: Vector3, direction: Vector3, starts: Boolean = false) {
+    fun paint(rays: List<PaintRay>, starts: Boolean = false) {
         val mode = view.value.painting ?: return
         // The gap fill paints no strokes.
         if (mode.tool == PaintTool.GAP_FILL) return
-        if (starts) strokeStarts = true
-        if (painting) return
+        val touch = rays.firstOrNull() ?: return
+        if (starts) {
+            strokeStarts = true
+            droppedPath = emptyList()
+        }
+        if (painting) {
+            droppedPath = rays + droppedPath
+            return
+        }
         painting = true
         val first = strokeStarts
         strokeStarts = false
+        val joined = rays.drop(1) + droppedPath
+        droppedPath = emptyList()
+        val path = joined.filterIndexed { index, ray -> index == 0 || ray != joined[index - 1] }
         viewModelScope.launch {
             try {
                 paintObject.stroke(
                     PaintStroke(
-                        origin = origin,
-                        direction = direction,
+                        origin = touch.origin,
+                        direction = touch.direction,
+                        path = path,
                         state = mode.state,
                         radius = mode.radius,
                         tool = mode.tool,
@@ -1661,10 +1764,56 @@ class PrepareViewModel(
         val before = plate.value.selectedInstance
         selectPlateObject(id)
         view.update { view ->
-            view.copy(
-                rotationStart = if (id != before) (if (view.assemblyView) id?.let(::assembleOf) else selected?.placement) else view.rotationStart,
-                gizmo = if (id == null) null else view.gizmo,
-            )
+            view.copy(rotationStart = if (id != before) (if (view.assemblyView) id?.let(::assembleOf) else selected?.placement) else view.rotationStart)
+        }
+    }
+
+    /**
+     * GLGizmosManager::refresh_on_off_state() and the open gizmo's
+     * data_changed(): a tool the selection no longer takes closes, and the
+     * painting tools, the cut and the mesh boolean go over to the copy
+     * selected now (update_from_model_object(), update_bb()).
+     */
+    private fun refreshTools(tools: ToolActivity) {
+        val moved = refreshedTools?.let { it.copy != tools.copy } ?: false
+        refreshedTools = tools
+        val current = view.value
+        current.gizmo?.let { open -> if (!tools.allows(open)) view.update { it.copy(gizmo = null) } }
+        current.painting?.let { open ->
+            when {
+                !(if (open.kind == PaintKind.COLOR) tools.colorPainting else tools.singleFullInstance) -> closePainting()
+                moved -> {
+                    closePainting()
+                    reopenOn(tools) { togglePainting(open.kind) }
+                }
+            }
+        }
+        current.cut?.let { open ->
+            when {
+                !tools.cut -> closeCut()
+                tools.copy != PlateInstanceId(open.mesh, open.instance) -> {
+                    closeCut()
+                    reopenOn(tools) { toggleCut() }
+                }
+            }
+        }
+        current.meshBoolean?.let { open ->
+            val copy = tools.copy
+            when {
+                !tools.meshBoolean || copy == null -> closeMeshBoolean()
+                // GLGizmoMeshBoolean::on_render(): another object starts the picks over.
+                copy.mesh != open.copy.mesh -> view.update { it.copy(meshBoolean = MeshBooleanMode(copy)) }
+                copy != open.copy -> view.update { state -> state.copy(meshBoolean = state.meshBoolean?.copy(copy = copy)) }
+            }
+        }
+        current.measure?.let { open -> if (!(if (open.assembly != null) tools.assembly else tools.measure)) closeMeasure() }
+    }
+
+    /** [open] a tool again once the page's state has the selection [tools] are of, unless it changed again meanwhile. */
+    private fun reopenOn(tools: ToolActivity, open: () -> Unit) {
+        viewModelScope.launch {
+            state.first { it.tools == tools }
+            if (refreshedTools == tools) open()
         }
     }
 
@@ -1672,8 +1821,11 @@ class PrepareViewModel(
     fun toggleGizmo(type: PlateGizmo) {
         val state = state.value
         if (!state.canOpen(type)) return
+        // GLGizmosManager::activate_gizmo(): the gizmo open before closes.
         openSimplify.close()
         closeCut()
+        closePainting()
+        closeMeshBoolean()
         closeEmbossTools()
         editLayerHeights.enable(false)
         view.update { view ->
@@ -1817,15 +1969,27 @@ class PrepareViewModel(
         }
     }
 
-    /** GLGizmoEmboss::close(): an empty text goes, its object with it when it is the object's only part. */
+    /**
+     * The tool turned off (on_set_state()): "Done" (reset_all_gizmos()), the
+     * toolbar's Text, or another tool; an empty text stays as it is.
+     */
     fun closeText() {
-        val open = view.value.text ?: return
+        if (view.value.text == null) return
         view.update { it.copy(text = null) }
         // on_set_state(): the styles' order and the active one go into the app configuration.
         viewModelScope.launch { storeStyles() }
+    }
+
+    /**
+     * GLGizmoEmboss::close(), as the selection leaves the text
+     * (data_changed(), on_mouse_change_selection()): an empty text goes, its
+     * object with it when it is the object's only part, and the tool closes.
+     */
+    private fun leaveText() {
+        val open = view.value.text ?: return
+        closeText()
         if (open.blank) {
-            val copy = PlateInstanceId(open.volume.mesh, 0)
-            if (open.onlyPart) deletePlateObject(copy.mesh) else removeObjectPart(open.volume)
+            if (open.onlyPart) deletePlateObject(open.volume.mesh) else removeObjectPart(open.volume)
         }
     }
 
@@ -2041,6 +2205,33 @@ class PrepareViewModel(
 
     /** "Edit SVG" of the menus. */
     fun editSvg(volume: ObjectPartId) = openSvg(volume)
+
+    /**
+     * GLCanvas3D::on_mouse()'s double click on the volume drawn as the mesh
+     * [key] of the copy at [index]: while no tool is open but moving,
+     * rotating, scaling, the text's or the SVG's, a text is selected alone
+     * and the text tool opens on it, an SVG the SVG tool; the open one follows
+     * the selection itself.
+     */
+    fun doubleTapVolume(index: Int, key: String) {
+        val current = view.value
+        val manipulating = current.gizmo == PlateGizmo.MOVE || current.gizmo == PlateGizmo.ROTATE || current.gizmo == PlateGizmo.SCALE
+        if (current.assemblyView || current.copy(gizmo = current.gizmo.takeUnless { manipulating }, text = null, svg = null).gizmoOpen) return
+        val copy = state.value.sceneCopies.getOrNull(index) ?: return
+        val plateObject = copy.plateObject
+        val volume = when (key) {
+            plateObject.mesh.value, copy.instance.inspection.mesh.value -> 0
+            else -> plateObject.parts.indexOfFirst { it.mesh.value == key }.takeIf { it >= 0 }?.plus(1)
+        } ?: return
+        val part = ObjectPartId(copy.id.mesh, volume)
+        val kind = plate.value.embossKindOf(part) ?: return
+        // m_selection.add_volumes(Selection::Volume, { hover_volume_id })
+        selectAssemblyVolume(index, key)
+        when (kind) {
+            EmbossKind.TEXT -> if (view.value.text == null) openText(part)
+            EmbossKind.SVG -> if (view.value.svg == null) openSvg(part)
+        }
+    }
 
     /** GLGizmoSVG::set_volume_by_selection(): the window opens on the SVG [volume]. */
     private fun openSvg(volume: ObjectPartId) {
@@ -2499,17 +2690,25 @@ class PrepareViewModel(
         val open = view.value.measure
         if (open?.assembly != null) return closeMeasure()
         if (!state.value.canAssemble) return
-        openMeasure(MeasureMode(assembly = AssemblyMode.FACE_FACE))
+        // The gizmo's m_assembly_mode and m_flip_volume_2 are as it was left.
+        openMeasure(MeasureMode(assembly = assemblyMode, flipVolume2 = assemblyFlip))
     }
 
-    /** One of the two tools opens, the other tools of the canvas closing; the other of the two starts over. */
+    /**
+     * One of the two tools opens, the other tools of the canvas closing; the
+     * other of the two starts over. Each takes its entering and leaving
+     * snapshots (GLGizmosManager::activate_gizmo()).
+     */
     private fun openMeasure(mode: MeasureMode) {
         val switching = view.value.measure != null
         if (!switching) {
             closeOtherTools()
             closeEmbossTools()
+        } else {
+            measureFeatures.leave()
         }
         view.update { it.copy(measure = mode) }
+        measureFeatures.enter()
         if (switching) measureCommands.trySend(MeasureCommand.Reset(MeasureReset.ALL))
     }
 
@@ -2517,6 +2716,7 @@ class PrepareViewModel(
     fun setAssemblyMode(mode: AssemblyMode) {
         val open = view.value.measure ?: return
         if (open.assembly == null || open.assembly == mode) return
+        assemblyMode = mode
         view.update { state -> state.measure?.let { state.copy(measure = it.copy(assembly = mode, pointSelection = false)) } ?: state }
         measureCommands.trySend(MeasureCommand.Reset(MeasureReset.ALL))
     }
@@ -2529,6 +2729,7 @@ class PrepareViewModel(
     /** "Flip by Face 2": the box changes, and the second volume turns over (set_to_reverse_rotation()). */
     fun flipByFace2() {
         val open = view.value.measure?.takeIf { it.assembly != null } ?: return
+        assemblyFlip = !open.flipVolume2
         view.update { state -> state.measure?.let { state.copy(measure = it.copy(flipVolume2 = !open.flipVolume2)) } ?: state }
         assemble(AssemblyAction.REVERSE_ROTATION, listOf(1.0))
     }
@@ -2608,10 +2809,14 @@ class PrepareViewModel(
         view.update { it.copy(gizmo = null, arrangeOptionsOpen = false) }
     }
 
-    /** "Done" (reset_all_gizmos()): the tool closes, and the engine lets the volumes go. */
+    /**
+     * "Done" (reset_all_gizmos()): the tool closes, its steps one step of Undo
+     * (reduce_noisy_snapshots()), and the engine lets the volumes go.
+     */
     fun closeMeasure() {
         if (view.value.measure == null) return
         view.update { it.copy(measure = null) }
+        measureFeatures.leave()
     }
 
     /** What a finger does on the 3D view while the tool is open. */
@@ -2799,15 +3004,32 @@ class PrepareViewModel(
         val copy = brimEarsTool.copyOf(plate.value)?.takeIf { state.value.canEditBrimEars } ?: return
         closeOtherTools()
         closeEmbossTools()
-        view.update { it.copy(brimEars = BrimEarsMode(copy)) }
+        // The gizmo's head diameter, max angle and detection radius are as it was left.
+        val left = brimEarsLeft
+        view.update {
+            it.copy(
+                brimEars = BrimEarsMode(
+                    copy,
+                    headDiameter = left?.headDiameter,
+                    maxAngle = left?.maxAngle ?: BrimEarsMode.MAX_ANGLE,
+                    detectionRadius = left?.detectionRadius ?: BrimEarsMode.DETECTION_RADIUS,
+                ),
+            )
+        }
+        brimEarsTool.enter()
     }
 
-    /** "Done" (reset_all_gizmos()): the tool closes; the object keeps its ears, and the section goes (ObjectClipper::on_release()). */
+    /**
+     * "Done" (reset_all_gizmos()): the tool closes; the object keeps its ears
+     * as one step of Undo, and the section goes (ObjectClipper::on_release()).
+     */
     fun closeBrimEars() {
-        if (view.value.brimEars == null) return
+        val open = view.value.brimEars ?: return
+        brimEarsLeft = open
         paintingSectionJob?.cancel()
         paintingSection.clear()
         view.update { it.copy(brimEars = null) }
+        brimEarsTool.leave()
     }
 
     /** "Section view" (set_position_by_ratio(clp_dist, false, true)). */
@@ -2846,6 +3068,11 @@ class PrepareViewModel(
         if (mode.selected.isEmpty()) return
         val points = brimEarsOf(plate.value, mode) ?: return
         brimEarsTool.commit(mode.copy.mesh, points.mapIndexed { index, point -> if (index in mode.selected) point.copy(radius = diameter / 2) else point })
+    }
+
+    /** The head diameter's box (BBLDragFloat): the diameter new ears take, the selected ones keeping theirs. */
+    fun typeBrimEarDiameter(diameter: Double) {
+        view.update { state -> state.brimEars?.let { state.copy(brimEars = it.copy(headDiameter = diameter)) } ?: state }
     }
 
     fun setBrimEarMaxAngle(angle: Double) {
@@ -3185,7 +3412,7 @@ class PrepareViewModel(
      */
     fun undo() {
         view.value.cut?.let { mode ->
-            if (mode.canUndo) restoreCut(mode.snapshot - 1)
+            if (mode.canUndo) restoreCut(CutMode::undone)
             return
         }
         if (view.value.painting == null) return undoRedoPlate.undo(assemblyView = view.value.assemblyView)
@@ -3194,7 +3421,7 @@ class PrepareViewModel(
 
     fun redo() {
         view.value.cut?.let { mode ->
-            if (mode.canRedo) restoreCut(mode.snapshot + 1)
+            if (mode.canRedo) restoreCut(CutMode::redone)
             return
         }
         if (view.value.painting == null) return undoRedoPlate.redo()
@@ -3246,6 +3473,12 @@ class PrepareViewModel(
 
     /** "Replace all with 3D files" from the folder the user picked. */
     fun replaceAllVolumes(copy: PlateInstanceId, folder: String) = replaceAllVolumesUseCase(copy, ExternalDocumentReference(folder))
+
+    /**
+     * replace_with_stl() and replace_all_with_stl() before their dialogs
+     * open: check_gizmos_closed_except(Undefined), which says so otherwise.
+     */
+    fun toolsClosedForReplace(): Boolean = replaceObjectVolume.toolsClosed()
 
     /** Plater::reload_from_disk() of the object's volumes. */
     fun reloadFromDiskAt(index: Int) = copyAt(index)?.let { reloadFromDisk(it.mesh) }
@@ -3560,6 +3793,17 @@ class PrepareViewModel(
      */
     fun setPosition(axis: Int, value: Double) {
         val state = state.value
+        if (state.wipeTowerSelected) {
+            // change_position_value() of the wipe tower: Selection::translate() by what was typed, and
+            // do_move(), which writes its corner on the plate; the tower stands on the plate.
+            val center = state.selectedPosition ?: return
+            val tower = state.wipeTower ?: return
+            if (axis == 2) return
+            val change = value.coerceIn(-MAX_NUM, MAX_NUM) - if (axis == 0) center.x else center.y
+            if (abs(change) < POSITION_EPSILON) return
+            moveTower(tower.x + if (axis == 0) change else 0.0, tower.y + if (axis == 1) change else 0.0)
+            return
+        }
         state.group?.let { group ->
             // change_position_value() of a group: Selection::translate() of every copy by what was typed.
             val clamped = value.coerceIn(-MAX_NUM, MAX_NUM)

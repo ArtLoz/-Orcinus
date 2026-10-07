@@ -65,6 +65,8 @@ internal class GizmoFrame(
      */
     val sceneFaces: List<GizmoFace> = emptyList(),
     val sceneFacesWorld: Affine3 = Affine3(),
+    /** Lines in the world drawn into the scene, hidden where the objects stand in front of them: a painting tool's height range. */
+    val sceneLines: List<GizmoLines> = emptyList(),
     /** gouraud_light's emission_factor for the grabbers. */
     val emission: Float = 0.1f,
     /**
@@ -223,8 +225,15 @@ internal object GrabberMeshes {
  * the coordinates [frame] turns into the world's (the world's own, or the
  * copy's rotation for "Object coordinates"), and [crossMark] the copy's
  * placement, whose origin render_cross_mark() marks in object coordinates.
+ * [axes] are the grabbers enabled: not Z for the wipe tower (data_changed()).
  */
-internal class MoveGizmo(box: Box3, private val pixel: Double, private val frame: Affine3 = Affine3(), private val crossMark: Affine3? = null) {
+internal class MoveGizmo(
+    box: Box3,
+    private val pixel: Double,
+    private val frame: Affine3 = Affine3(),
+    private val crossMark: Affine3? = null,
+    val axes: List<Int> = listOf(0, 1, 2),
+) {
     private val localCenter = box.center()
     val center: Vec3 = frame.transformPoint(localCenter)
     private val halfSize = box.size() * 0.5
@@ -253,7 +262,7 @@ internal class MoveGizmo(box: Box3, private val pixel: Double, private val frame
 
     /** GLGizmoMove3D::on_render(); [dragged] is the axis being dragged. */
     fun frame(dragged: Int?, pixelScale: Float): GizmoFrame = GizmoFrame(
-        lines = (0 until 3).map { axis ->
+        lines = axes.map { axis ->
             // glLineWidth(hover ? 2 : 1.5) with a dashed line.
             GizmoLines(
                 segments = dashedSegments(center, grabberCenter(axis), pixel),
@@ -261,7 +270,7 @@ internal class MoveGizmo(box: Box3, private val pixel: Double, private val frame
                 width = (if (dragged != null) 2f else 1.5f) * pixelScale,
             )
         } + crossMarkLines(pixelScale),
-        grabbers = (0 until 3).map { axis ->
+        grabbers = axes.map { axis ->
             GizmoGrabber(grabberWorld(axis), if (axis == dragged) GizmoColors.AXES_HOVER[axis] else GizmoColors.AXES[axis])
         },
     )

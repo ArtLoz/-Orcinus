@@ -1658,6 +1658,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_paintStroke(
     jobject /* this */,
     jdoubleArray origin,
     jdoubleArray direction,
+    jdoubleArray path,
     jint state,
     jdouble radius,
     jlong tool,
@@ -1678,6 +1679,7 @@ Java_app_orcinus_shadow_slicing_nativebridge_NativeBindings_paintStroke(
         stroke.origin[axis] = axis < from.size() ? from[axis] : 0.0;
         stroke.direction[axis] = axis < along.size() ? along[axis] : 0.0;
     }
+    stroke.path = to_doubles(env, path);
     stroke.state = static_cast<int>(state);
     stroke.radius = radius;
     stroke.tool = static_cast<orcinus::orca::PaintTool>(tool);

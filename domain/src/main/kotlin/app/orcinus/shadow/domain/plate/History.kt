@@ -42,6 +42,50 @@ internal fun PlateState.recorded(before: PlateSnapshot = snapshot(), gizmoAction
     copy(history = history.copy(undo = history.undo + before.copy(gizmoAction = gizmoAction), redo = emptyList()))
 
 /**
+ * Plater::priv::enter_gizmos_stack() after the tool's EnteringGizmo snapshot:
+ * the main stack waits aside with the state the tool was entered from, and
+ * Undo and Redo work on the tool's own stack, empty at first ("Gizmos-Initial").
+ */
+internal fun PlateState.enteredGizmosStack(): PlateState =
+    if (history.main != null) this else copy(history = PlateHistory(main = history.copy(beforeTool = snapshot())))
+
+/**
+ * leave_gizmos_stack() and the LeavingGizmoWithAction snapshot that
+ * GLGizmosManager::activate_gizmo() takes after it: the tool's stack is
+ * dropped, and the main one, active again, has the tool's work as one step
+ * back to the state it was entered from, when the plate changed meanwhile.
+ */
+internal fun PlateState.leftGizmosStack(): PlateState {
+    val main = history.main ?: return this
+    val before = main.beforeTool
+    val restored = main.copy(beforeTool = null)
+    val now = snapshot()
+    val changed = before != null && (now.objects != before.objects || now.plates != before.plates)
+    if (!changed) return copy(history = restored)
+    return copy(history = restored.copy(undo = restored.undo + before!!.copy(gizmoAction = true), redo = emptyList()))
+}
+
+/**
+ * StackImpl::reduce_noisy_snapshots() once a tool that takes its entering and
+ * leaving snapshots closes: of each run of GizmoAction snapshots its actions
+ * took since [entered] (the top of the undo stack when it opened, null for an
+ * empty one), the first alone stays, so Undo goes back over the run at once;
+ * the leaving snapshot drops what Undo left. A stack the tool undid past
+ * where it was entered keeps what it has.
+ */
+internal fun PlateHistory.reducedNoisySnapshots(entered: PlateSnapshot?): PlateHistory {
+    val start = if (entered == null) 0 else undo.indexOfLast { it === entered } + 1
+    if (start == 0 && entered != null) return this
+    if (start >= undo.size) return this
+    val kept = undo.take(start).toMutableList()
+    undo.drop(start).forEach { snapshot ->
+        if (snapshot.gizmoAction && kept.size > start && kept.last().gizmoAction) return@forEach
+        kept += snapshot
+    }
+    return copy(undo = kept, redo = emptyList())
+}
+
+/**
  * Plater::undo() and redo(): the plate goes back to the state before the last
  * action, or forward to the one Undo left, with the selection it had then.
  * Snapshots of a mere selection change are not kept, since OrcaSlicer skips
@@ -164,7 +208,7 @@ class UndoStackMemoryLimit(
     }
 
     private fun release(history: PlateHistory) {
-        val others = history.redo + listOfNotNull(history.beforeTool)
+        val others = history.redo + listOfNotNull(history.beforeTool) + history.main.snapshots()
         var undo = history.undo
         // m_snapshots: the undo snapshots, the active state and the redo ones.
         while (memsize(undo + others) > limitBytes && undo.size + 1 + history.redo.size >= 3 && undo.size > 1) {
@@ -192,13 +236,19 @@ class UndoStackMemoryLimit(
 /** Every mesh file the plate, its history and its clipboard refer to. */
 internal fun PlateState.referencedMeshes(): Set<ScenePath> = buildSet {
     objects.forEach { addAll(it.files()) }
-    (history.undo + history.redo + listOfNotNull(history.beforeTool)).forEach { snapshot -> snapshot.objects.forEach { addAll(it.files()) } }
+    (history.undo + history.redo + listOfNotNull(history.beforeTool) + history.main.snapshots()).forEach { snapshot ->
+        snapshot.objects.forEach { addAll(it.files()) }
+    }
     when (val kept = clipboard) {
         is PlateClipboard.Objects -> kept.objects.forEach { addAll(it.files()) }
         is PlateClipboard.Volumes -> addAll(kept.source.files())
         null -> Unit
     }
 }
+
+/** Every snapshot of the main stack while a tool's own stack is active (Plater::priv::m_undo_redo_stack_main). */
+private fun PlateHistory?.snapshots(): List<PlateSnapshot> =
+    if (this == null) emptyList() else undo + redo + listOfNotNull(beforeTool) + main.snapshots()
 
 /** The files an object is drawn and loaded from, its painted facets among them. */
 internal fun PlateObject.files(): Set<ScenePath> = buildSet {

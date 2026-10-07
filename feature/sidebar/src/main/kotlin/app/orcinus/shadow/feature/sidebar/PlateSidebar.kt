@@ -850,6 +850,12 @@ class SidebarViewModel(
     /** "Replace 3D file": the volume takes the mesh of the document the user picked. */
     fun replaceVolume(copy: PlateInstanceId, volume: Int, document: ExternalDocumentReference) = replaceObjectVolume(copy, volume, document)
 
+    /**
+     * replace_with_stl() and replace_all_with_stl() before their dialogs
+     * open: check_gizmos_closed_except(Undefined), which says so otherwise.
+     */
+    fun toolsClosedForReplace(): Boolean = replaceObjectVolume.toolsClosed()
+
     /** Plater::reload_from_disk() of the object's volumes, or of its volume [volume]. */
     fun reloadFromDisk(mesh: ScenePath, volume: Int?) = reloadFromDiskUseCase(mesh, volume)
 
@@ -1961,7 +1967,11 @@ fun PlateSidebar(
         onChooseBedType = viewModel::chooseBedType,
         onChooseScope = viewModel::chooseSettingsScope,
         objectList = ObjectListActions(
-            selection = viewModel.selectionActions(openSettings = {}, replaceAll = { selectionFolderPicker.launch(null) }, export = exportSelection),
+            selection = viewModel.selectionActions(
+                openSettings = {},
+                replaceAll = { if (viewModel.toolsClosedForReplace()) selectionFolderPicker.launch(null) },
+                export = exportSelection,
+            ),
             volumes = viewModel.volumesActions(openSettings = {}),
             select = viewModel::chooseSettingsTarget,
             selectAlone = { viewModel.chooseSettingsTarget(it, add = false) },
@@ -2019,12 +2029,16 @@ fun PlateSidebar(
             focusRangeField = viewModel::focusRangeField,
             pasteProcessSettings = viewModel::pasteProcessSettings,
             replaceVolume = { copy, volume ->
-                replacing = Triple(copy.mesh.value, copy.instance, volume)
-                replacementPicker.launch(arrayOf("*/*"))
+                if (viewModel.toolsClosedForReplace()) {
+                    replacing = Triple(copy.mesh.value, copy.instance, volume)
+                    replacementPicker.launch(arrayOf("*/*"))
+                }
             },
             replaceAllVolumes = { copy ->
-                replacingAll = copy.mesh.value to copy.instance
-                replacementFolderPicker.launch(null)
+                if (viewModel.toolsClosedForReplace()) {
+                    replacingAll = copy.mesh.value to copy.instance
+                    replacementFolderPicker.launch(null)
+                }
             },
             reloadFromDisk = viewModel::reloadFromDisk,
             reloadAll = viewModel::reloadAll,
@@ -2064,8 +2078,10 @@ fun PlateSidebar(
             selectPlate = viewModel::choosePlate,
             selectPlateSettings = viewModel::openPlateSettings,
             replaceAllOnPlate = { index ->
-                replacingPlate = index
-                plateFolderPicker.launch(null)
+                if (viewModel.toolsClosedForReplace()) {
+                    replacingPlate = index
+                    plateFolderPicker.launch(null)
+                }
             },
             selectPlateObjects = viewModel::selectPlateObjects,
             selectAllPlates = viewModel::selectAllPlates,

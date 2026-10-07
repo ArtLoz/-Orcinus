@@ -21,6 +21,7 @@
 
 #include "libslic3r/AABBMesh.hpp"
 #include "libslic3r/Model.hpp"
+#include "libslic3r/Polyline.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/TriangleSelector.hpp"
 
@@ -472,14 +473,10 @@ struct Session {
     std::vector<Snapshot> redo;
     // A stroke began and has not met the model yet.
     bool stroke_pending{false};
-    // Where the stroke last met the model: on which model part, in its
-    // coordinates, and on which facet. The brush paints from there to where
-    // the finger is now (the gizmo's DoublePointCursor between its mouse
-    // positions) while it stays on the same part.
+    // The last touch of the stroke met the model (m_last_mouse_click is not
+    // zero), so the next one paints along the finger's path from there
+    // (get_projected_mouse_positions()).
     bool has_last{false};
-    std::size_t last_volume{0};
-    Slic3r::Vec3f last_position{Slic3r::Vec3f::Zero()};
-    int last_face{-1};
     // How many times the painted meshes were written, which names them anew
     // each time so the 3D view reads them again.
     std::size_t writes{0};
@@ -817,50 +814,57 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
         const double clip_offset = stroke.clipping_plane[3];
         const bool clipping = clip_offset != std::numeric_limits<double>::max();
 
-        // GLGizmoPainterBase::update_raycast_cache(): the finger's ray cast on
-        // every model part in its own coordinates, and the hit nearest the
-        // camera kept, which stands at the ray's origin.
+        // GLGizmoPainterBase::update_raycast_cache(): a ray cast on every
+        // model part in its own coordinates, and the hit nearest the camera
+        // kept, which stands at the ray's origin.
         struct Met {
             std::size_t volume{0};
-            Slic3r::Vec3d source;
             Slic3r::Vec3f position;
             int face{-1};
         };
-        std::optional<Met> nearest;
-        double nearest_distance = std::numeric_limits<double>::max();
-        for (std::size_t index = 0; index < current.volumes.size(); ++index) {
-            const PaintedVolume& volume = current.volumes[index];
-            const Slic3r::Transform3d to_mesh = volume.world.inverse();
-            const Slic3r::Vec3d source = to_mesh * origin;
-            const Slic3r::Vec3d direction = (to_mesh * (origin + along) - source).normalized();
-            // MeshRaycaster::unproject_on_mesh(): the nearest hit above the bed
-            // (sinking objects) and not cut by the clipping plane; with an odd
-            // number of such hits the nearest is from inside the mesh.
-            const std::vector<Slic3r::AABBMesh::hit_result> hits = volume.tree->query_ray_hits(source, direction);
-            std::size_t first = 0;
-            for (; first < hits.size(); ++first) {
-                const Slic3r::Vec3d transformed_hit = volume.world * hits[first].position();
-                if (transformed_hit.z() >= (stroke.sinking_limit ? Slic3r::SINKING_Z_THRESHOLD : -std::numeric_limits<double>::max()) &&
-                    (!clipping || -clip_normal.dot(transformed_hit) + clip_offset >= 0.))
-                    break;
+        const auto raycast = [&](const Slic3r::Vec3d& from, const Slic3r::Vec3d& towards) {
+            std::optional<Met> nearest;
+            double nearest_distance = std::numeric_limits<double>::max();
+            for (std::size_t index = 0; index < current.volumes.size(); ++index) {
+                const PaintedVolume& volume = current.volumes[index];
+                const Slic3r::Transform3d to_mesh = volume.world.inverse();
+                const Slic3r::Vec3d source = to_mesh * from;
+                const Slic3r::Vec3d direction = (to_mesh * (from + towards) - source).normalized();
+                // MeshRaycaster::unproject_on_mesh(): the nearest hit above the bed
+                // (sinking objects) and not cut by the clipping plane; with an odd
+                // number of such hits the nearest is from inside the mesh.
+                const std::vector<Slic3r::AABBMesh::hit_result> hits = volume.tree->query_ray_hits(source, direction);
+                std::size_t first = 0;
+                for (; first < hits.size(); ++first) {
+                    const Slic3r::Vec3d transformed_hit = volume.world * hits[first].position();
+                    if (transformed_hit.z() >= (stroke.sinking_limit ? Slic3r::SINKING_Z_THRESHOLD : -std::numeric_limits<double>::max()) &&
+                        (!clipping || -clip_normal.dot(transformed_hit) + clip_offset >= 0.))
+                        break;
+                }
+                if (first == hits.size() || (hits.size() - first) % 2 != 0) {
+                    continue;
+                }
+                const double distance = (from - volume.world * hits[first].position()).squaredNorm();
+                if (distance < nearest_distance) {
+                    nearest_distance = distance;
+                    nearest = Met{index, hits[first].position().cast<float>(), hits[first].face()};
+                }
             }
-            if (first == hits.size() || (hits.size() - first) % 2 != 0) {
-                continue;
-            }
-            const double distance = (origin - volume.world * hits[first].position()).squaredNorm();
-            if (distance < nearest_distance) {
-                nearest_distance = distance;
-                nearest = Met{index, source, hits[first].position().cast<float>(), hits[first].face()};
-            }
-        }
+            return nearest;
+        };
+        const std::optional<Met> nearest = raycast(origin, along);
         result.status = SceneStatus::success;
         if (stroke.starts) {
             current.stroke_pending = true;
-            current.has_last = false;
+            // The first touch of a stroke met the model (the press starts no
+            // stroke off it), so a path the app sends with it, of touches it
+            // could not send in time, goes back to where the stroke began.
+            current.has_last = !stroke.path.empty();
         }
         if (!nearest) {
             // The finger missed the model, which leaves it as it was, and the
-            // brush starts anew where it meets it again.
+            // brush starts anew where it meets it again (only actual hits are
+            // kept as m_last_mouse_click).
             current.has_last = false;
             result.hit = false;
             write_painted_meshes(mesh_prefix, result);
@@ -890,68 +894,26 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
                 std::array<float, 4>{float(normal_transformed.x()), float(normal_transformed.y()), float(normal_transformed.z()), offset_transformed}
             );
         };
-        PaintedVolume& volume = current.volumes[nearest->volume];
-        const Slic3r::Vec3f& position = nearest->position;
-        const int face = nearest->face;
-        const Slic3r::Vec3d& source = nearest->source;
-        const Slic3r::Transform3d no_translation = Slic3r::Transform3d(volume.world.linear());
-        const Slic3r::TriangleSelector::ClippingPlane clipping_plane = clipping_plane_of(volume);
         const Slic3r::EnforcerBlockerType state = state_of(stroke.state);
         // m_paint_on_overhangs_only ? m_highlight_by_angle_threshold_deg : 0.f
         const auto overhang_angle = static_cast<float>(stroke.overhang_angle);
 
-        switch (stroke.tool) {
-        case PaintTool::brush:
-        case PaintTool::circle: {
-            // The camera looks along the finger's ray, from its origin. Along
-            // a stroke the brush paints the capsule from where it last met the
-            // same part, as the gizmo joins its mouse positions on a mesh.
-            const Slic3r::TriangleSelector::CursorType type = stroke.tool == PaintTool::circle
-                ? Slic3r::TriangleSelector::CursorType::CIRCLE
-                : Slic3r::TriangleSelector::CursorType::SPHERE;
-            const auto radius = static_cast<float>(stroke.radius);
-            if (current.has_last && current.last_volume == nearest->volume) {
-                std::unique_ptr<Slic3r::TriangleSelector::Cursor> cursor =
-                    Slic3r::TriangleSelector::DoublePointCursor::cursor_factory(
-                        current.last_position, position, source.cast<float>(), radius, type, volume.world, clipping_plane);
-                volume.selector->select_patch(current.last_face, std::move(cursor), state, no_translation, true, overhang_angle);
-            } else {
-                std::unique_ptr<Slic3r::TriangleSelector::Cursor> cursor =
-                    Slic3r::TriangleSelector::SinglePointCursor::cursor_factory(position, source.cast<float>(), radius, type, volume.world, clipping_plane);
-                volume.selector->select_patch(face, std::move(cursor), state, no_translation, true, overhang_angle);
-            }
-            current.has_last = true;
-            current.last_volume = nearest->volume;
-            current.last_position = position;
-            current.last_face = face;
-            break;
-        }
-        case PaintTool::fill:
-            // The smart fill of the desktop gizmo: the facets that lie flat
-            // enough against the one touched take the colour with it.
-            volume.selector->seed_fill_select_triangles(
-                position,
-                face,
-                no_translation,
-                clipping_plane,
-                static_cast<float>(stroke.angle),
-                overhang_angle,
-                true
-            );
-            volume.selector->seed_fill_apply_on_triangles(state);
-            break;
-        case PaintTool::gap_fill:
+        if (stroke.tool == PaintTool::gap_fill) {
             // The gap fill paints no strokes (GLGizmoPainterBase::gizmo_event()).
-            break;
-        case PaintTool::height_range: {
+            write_painted_meshes(mesh_prefix, result);
+            return result;
+        }
+        if (stroke.tool == PaintTool::height_range) {
             // get_projected_height_range(): from the height the finger meets the
             // model at up the cursor's height, on the part it meets and on every
-            // other part with a facet within that band, from its first such facet.
-            const float z_bot_world = float((volume.world * position.cast<double>()).z());
+            // other part with a facet within that band, from its first such
+            // facet; the finger's path plays no part.
+            const PaintedVolume& met = current.volumes[nearest->volume];
+            const float z_bot_world = float((met.world * nearest->position.cast<double>()).z());
             const float z_top_world = z_bot_world + float(stroke.cursor_height);
             for (std::size_t index = 0; index < current.volumes.size(); ++index) {
                 PaintedVolume& painted = current.volumes[index];
-                int first_hit_facet_idx = index == nearest->volume ? face : -1;
+                int first_hit_facet_idx = index == nearest->volume ? nearest->face : -1;
                 if (index != nearest->volume) {
                     const indexed_triangle_set& its = painted.mesh->its;
                     for (int facet_idx = 0; facet_idx < int(its.indices.size()); ++facet_idx) {
@@ -978,25 +940,168 @@ PaintingState paint(const PaintStroke& stroke, const std::string& mesh_prefix)
                 painted.selector->select_patch(
                     first_hit_facet_idx, std::move(cursor), state, Slic3r::Transform3d(painted.world.linear()), true, overhang_angle);
             }
-            break;
+            current.has_last = true;
+            write_painted_meshes(mesh_prefix, result);
+            return result;
         }
-        case PaintTool::triangle:
-            // The Triangles tool: the triangle under the finger alone, which the
-            // stroke paints as it passes over one after another.
-            volume.selector->bucket_fill_select_triangles(position, face, clipping_plane, -1.f, false, true);
-            volume.selector->seed_fill_apply_on_triangles(state);
-            break;
-        case PaintTool::bucket:
-            volume.selector->bucket_fill_select_triangles(
-                position,
-                face,
-                clipping_plane,
-                static_cast<float>(stroke.angle),
-                true,
-                true
-            );
-            volume.selector->seed_fill_apply_on_triangles(state);
-            break;
+
+        // get_projected_mouse_positions(): once the stroke met the model on its
+        // last touch, the finger's positions from here back to there, that one
+        // too, are cast onto the object one after another until one misses it,
+        // so the paint follows the finger's path on the screen without gaps.
+        std::vector<Met> mesh_hit_points{*nearest};
+        if (current.has_last) {
+            for (std::size_t offset = 0; offset + 6 <= stroke.path.size(); offset += 6) {
+                const Slic3r::Vec3d from(stroke.path[offset], stroke.path[offset + 1], stroke.path[offset + 2]);
+                const Slic3r::Vec3d towards(stroke.path[offset + 3], stroke.path[offset + 4], stroke.path[offset + 5]);
+                const std::optional<Met> met = raycast(from, towards);
+                if (!met) {
+                    break;
+                }
+                mesh_hit_points.push_back(*met);
+            }
+        }
+        // Divide mesh_hit_points into groups with the same mesh_idx. It may contain multiple groups with the same mesh_idx.
+        std::vector<std::vector<Met>> mesh_hit_points_by_mesh;
+        for (std::size_t prev_mesh_hit_point = 0, curr_mesh_hit_point = 0; curr_mesh_hit_point < mesh_hit_points.size(); ++curr_mesh_hit_point) {
+            const std::size_t next_mesh_hit_point = curr_mesh_hit_point + 1;
+            if (next_mesh_hit_point >= mesh_hit_points.size() ||
+                mesh_hit_points[curr_mesh_hit_point].volume != mesh_hit_points[next_mesh_hit_point].volume) {
+                mesh_hit_points_by_mesh.emplace_back(mesh_hit_points.begin() + std::ptrdiff_t(prev_mesh_hit_point),
+                                                     mesh_hit_points.begin() + std::ptrdiff_t(next_mesh_hit_point));
+                prev_mesh_hit_point = next_mesh_hit_point;
+            }
+        }
+        const auto on_same_facet = [](const std::vector<Met>& hit_points) {
+            for (const Met& mesh_hit_point : hit_points)
+                if (mesh_hit_point.face != hit_points.front().face)
+                    return false;
+            return true;
+        };
+        struct Plane {
+            Slic3r::Vec3d origin;
+            Slic3r::Vec3d first_axis;
+            Slic3r::Vec3d second_axis;
+        };
+        const auto find_plane = [](const std::vector<Met>& hit_points) -> std::optional<Plane> {
+            for (std::size_t third_idx = 2; third_idx < hit_points.size(); ++third_idx) {
+                const Slic3r::Vec3d first_point = hit_points[third_idx - 2].position.cast<double>();
+                const Slic3r::Vec3d second_point = hit_points[third_idx - 1].position.cast<double>();
+                const Slic3r::Vec3d third_point = hit_points[third_idx].position.cast<double>();
+
+                const Slic3r::Vec3d first_vec = first_point - second_point;
+                const Slic3r::Vec3d second_vec = third_point - second_point;
+
+                // If three points aren't collinear, then there exists only one plane going through all points.
+                if (first_vec.cross(second_vec).squaredNorm() > Slic3r::sqr(EPSILON)) {
+                    const Slic3r::Vec3d first_axis_vec_n = first_vec.normalized();
+                    // Make second_vec perpendicular to first_axis_vec_n using Gram-Schmidt orthogonalization process
+                    const Slic3r::Vec3d second_axis_vec_n = (second_vec - (first_vec.dot(second_vec) / first_vec.dot(first_vec)) * first_vec).normalized();
+                    return Plane{second_point, first_axis_vec_n, second_axis_vec_n};
+                }
+            }
+            return std::nullopt;
+        };
+        for (std::vector<Met>& hit_points : mesh_hit_points_by_mesh) {
+            if (hit_points.size() <= 2)
+                continue;
+            if (on_same_facet(hit_points)) {
+                hit_points = {hit_points.front(), hit_points.back()};
+            } else if (const std::optional<Plane> plane = find_plane(hit_points); plane) {
+                Slic3r::Polyline polyline;
+                polyline.points.reserve(hit_points.size());
+                // Project hit_points into its plane to simplified them in the next step.
+                for (const Met& hit_point : hit_points) {
+                    const Slic3r::Vec3d point = hit_point.position.cast<double>();
+                    const double x_cord = plane->first_axis.dot(point - plane->origin);
+                    const double y_cord = plane->second_axis.dot(point - plane->origin);
+                    polyline.points.emplace_back(scale_(x_cord), scale_(y_cord));
+                }
+
+                polyline.simplify(scale_(stroke.radius) / 10.);
+
+                const std::size_t mesh_idx = hit_points.front().volume;
+                std::vector<Met> new_hit_points;
+                new_hit_points.reserve(polyline.points.size());
+                // Project 2D simplified hit_points beck to 3D.
+                for (const Slic3r::Point& point : polyline.points) {
+                    const double x_cord = Slic3r::unscale<double>(point.x());
+                    const double y_cord = Slic3r::unscale<double>(point.y());
+                    const Slic3r::Vec3d new_hit_point = plane->origin + x_cord * plane->first_axis + y_cord * plane->second_axis;
+                    // MeshRaycaster::get_closest_facet()
+                    int facet_idx = 0;
+                    Slic3r::Vec3d closest_point;
+                    current.volumes[mesh_idx].tree->squared_distance(new_hit_point, facet_idx, closest_point);
+                    new_hit_points.push_back(Met{mesh_idx, new_hit_point.cast<float>(), facet_idx});
+                }
+
+                hit_points = new_hit_points;
+            } else {
+                hit_points = {hit_points.front(), hit_points.back()};
+            }
+        }
+
+        // gizmo_event(): each group on its own model part, with the camera at
+        // the ray's origin. The fills and the triangles select under every
+        // position and apply at once, as a touch has no hover that selected
+        // under it before (the gizmo applies the last selection first).
+        for (const std::vector<Met>& projected_mouse_positions : mesh_hit_points_by_mesh) {
+            PaintedVolume& volume = current.volumes[projected_mouse_positions.front().volume];
+            const Slic3r::Vec3f camera_pos = (volume.world.inverse() * origin).cast<float>();
+            const Slic3r::Transform3d no_translation = Slic3r::Transform3d(volume.world.linear());
+            const Slic3r::TriangleSelector::ClippingPlane clipping_plane = clipping_plane_of(volume);
+            switch (stroke.tool) {
+            case PaintTool::brush:
+            case PaintTool::circle: {
+                const Slic3r::TriangleSelector::CursorType type = stroke.tool == PaintTool::circle
+                    ? Slic3r::TriangleSelector::CursorType::CIRCLE
+                    : Slic3r::TriangleSelector::CursorType::SPHERE;
+                const auto radius = static_cast<float>(stroke.radius);
+                if (projected_mouse_positions.size() == 1) {
+                    const Met& first_position = projected_mouse_positions.front();
+                    std::unique_ptr<Slic3r::TriangleSelector::Cursor> cursor = Slic3r::TriangleSelector::SinglePointCursor::cursor_factory(
+                        first_position.position, camera_pos, radius, type, volume.world, clipping_plane);
+                    volume.selector->select_patch(first_position.face, std::move(cursor), state, no_translation, true, overhang_angle);
+                } else {
+                    for (auto first_position_it = projected_mouse_positions.cbegin(); first_position_it != projected_mouse_positions.cend() - 1;
+                         ++first_position_it) {
+                        auto second_position_it = first_position_it + 1;
+                        std::unique_ptr<Slic3r::TriangleSelector::Cursor> cursor = Slic3r::TriangleSelector::DoublePointCursor::cursor_factory(
+                            first_position_it->position, second_position_it->position, camera_pos, radius, type, volume.world, clipping_plane);
+                        volume.selector->select_patch(first_position_it->face, std::move(cursor), state, no_translation, true, overhang_angle);
+                    }
+                }
+                break;
+            }
+            case PaintTool::fill:
+                // The smart fill of the desktop gizmo: the facets that lie flat
+                // enough against the one touched take the colour with it.
+                for (const Met& position : projected_mouse_positions) {
+                    volume.selector->seed_fill_select_triangles(
+                        position.position, position.face, no_translation, clipping_plane, static_cast<float>(stroke.angle), overhang_angle, true);
+                    volume.selector->seed_fill_apply_on_triangles(state);
+                }
+                break;
+            case PaintTool::triangle:
+                // The Triangles tool: the triangle under the finger alone, which the
+                // stroke paints as it passes over one after another.
+                for (const Met& position : projected_mouse_positions) {
+                    volume.selector->bucket_fill_select_triangles(position.position, position.face, clipping_plane, -1.f, false, true);
+                    volume.selector->seed_fill_apply_on_triangles(state);
+                }
+                break;
+            case PaintTool::bucket:
+                for (const Met& position : projected_mouse_positions) {
+                    volume.selector->bucket_fill_select_triangles(
+                        position.position, position.face, clipping_plane, static_cast<float>(stroke.angle), true, true);
+                    volume.selector->seed_fill_apply_on_triangles(state);
+                }
+                break;
+            case PaintTool::gap_fill:
+            case PaintTool::height_range:
+                break;
+            }
+            current.has_last = true;
         }
 
         write_painted_meshes(mesh_prefix, result);

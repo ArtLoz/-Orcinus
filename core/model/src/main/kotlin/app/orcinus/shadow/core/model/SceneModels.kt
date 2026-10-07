@@ -486,6 +486,12 @@ data class PaintStroke(
     val direction: Vector3,
     /** The state to paint ([PaintState]); for colour, the filament, 1-based. */
     val state: Int,
+    /**
+     * The rays of the finger's path on the screen from here back to where its
+     * last touch was, that one last (get_projected_mouse_positions()), which
+     * the stroke paints along once the last touch met the model.
+     */
+    val path: List<PaintRay> = emptyList(),
     /** The brush's radius in millimetres. */
     val radius: Double = 2.0,
     val tool: PaintTool = PaintTool.BRUSH,
@@ -505,6 +511,20 @@ data class PaintStroke(
     /** MeshRaycaster::unproject_on_mesh()'s sinking_limit: the model under the plate is passed by, but in the assembly view. */
     val sinkingLimit: Boolean = true,
 )
+
+/** A ray of the finger in world coordinates, as the 3D view casts it. */
+data class PaintRay(val origin: Vector3, val direction: Vector3)
+
+/** The rays of [PaintStroke.path] as the engine takes them: an origin and a direction, six numbers each. */
+fun PaintStroke.pathValues(): DoubleArray =
+    path.flatMap { listOf(it.origin.x, it.origin.y, it.origin.z, it.direction.x, it.direction.y, it.direction.z) }.toDoubleArray()
+
+/** The rays of [values], six numbers each. */
+fun paintRaysOf(values: DoubleArray): List<PaintRay> =
+    (0 until values.size / 6).map { ray ->
+        val at = ray * 6
+        PaintRay(Vector3(values[at], values[at + 1], values[at + 2]), Vector3(values[at + 3], values[at + 4], values[at + 5]))
+    }
 
 /**
  * ClippingPlane: its unit [normal] and [offset] in world coordinates; a point

@@ -184,6 +184,9 @@ class ReplaceObjectVolumeUseCase(
     private val applicationScope: CoroutineScope,
     private val stepMeshPrompt: StepMeshPrompt,
 ) {
+    /** Plater::priv::replace_with_stl() before its file dialog: check_gizmos_closed_except(Undefined). */
+    fun toolsClosed(): Boolean = repository.gizmosClosed()
+
     operator fun invoke(copy: PlateInstanceId, volume: Int, reference: ExternalDocumentReference) {
         var profiles: SlicingProfileSelection? = null
         repository.update { state ->
@@ -258,6 +261,9 @@ class ReplaceAllVolumesUseCase(
     private val applicationScope: CoroutineScope,
     private val stepMeshPrompt: StepMeshPrompt,
 ) {
+    /** Plater::priv::replace_all_with_stl() before its folder dialog: check_gizmos_closed_except(Undefined). */
+    fun toolsClosed(): Boolean = repository.gizmosClosed()
+
     operator fun invoke(copy: PlateInstanceId, folder: ExternalDocumentReference) = replaceAll(listOf(copy.mesh), folder)
 
     /** The multi-selection menu's item: every volume of the selected objects. */

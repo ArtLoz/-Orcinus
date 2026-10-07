@@ -100,6 +100,11 @@ internal class SceneFrame(
      */
     val assembly: Boolean = false,
     /**
+     * GLCanvas3D::_render()'s no_partplate: a painting tool is open, so
+     * neither the bed nor the plates are drawn under the objects.
+     */
+    val platesHidden: Boolean = false,
+    /**
      * The objects [clippingPlane] clips: those of this index alone (a painting
      * tool's section of the copy it paints); null clips every object.
      */
@@ -554,7 +559,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
 
         val bottom = !frame.lookingDownward
         val plates = plates
-        gpuBed?.takeUnless { frame.assembly }?.let { bed ->
+        gpuBed?.takeUnless { frame.assembly || frame.platesHidden }?.let { bed ->
             // Bed3D::render_internal(): the axes first.
             if (frame.showAxes) renderAxes(programs.flat, bed, frame)
             GLES30.glEnable(GLES30.GL_DEPTH_TEST)
@@ -1421,6 +1426,23 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             flat.setMatrix4("projection_matrix", frame.projection)
             for (face in gizmo.sceneFaces) drawFace(flat, face)
             GLES30.glDisable(GLES30.GL_BLEND)
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        }
+        if (gizmo.sceneLines.isNotEmpty()) {
+            // GLGizmoPainterBase::render_cursor_height_range(): in the scene's depth.
+            GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+            flat.use()
+            flat.setMatrix4("view_model_matrix", frame.view.toFloatArray())
+            flat.setMatrix4("projection_matrix", frame.projection)
+            for (lines in gizmo.sceneLines) {
+                if (lines.segments.isEmpty()) continue
+                val array = GlVertexArray(GlVertexArray.floatBuffer(lines.segments), listOf(GlProgram.POSITION to 3), GLES30.GL_LINES)
+                flat.setVec4("uniform_color", lines.color.red, lines.color.green, lines.color.blue, lines.color.alpha)
+                GLES30.glLineWidth(lineWidth(lines.width))
+                array.draw()
+                array.release()
+            }
+            GLES30.glLineWidth(1f)
             GLES30.glDisable(GLES30.GL_DEPTH_TEST)
         }
         GLES30.glClear(GLES30.GL_DEPTH_BUFFER_BIT)

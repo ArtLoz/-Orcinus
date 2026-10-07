@@ -88,10 +88,7 @@ class EditPlateObjectUseCase(
 
     private fun start(request: PlateRequest.Edit) {
         // ObjectList::fix_through_cgal(): check_gizmos_closed_except(Undefined).
-        if (request.edit == ObjectEdit.FIX && repository.state.value.gizmoOpen) {
-            repository.update { it.copy(plateNotices = it.plateNotices + CLOSE_TOOLS_FIRST) }
-            return
-        }
+        if (request.edit == ObjectEdit.FIX && !repository.gizmosClosed()) return
         var started = false
         repository.update { state ->
             started = !state.busy && state.profiles != null && request.meshes.all { state.objects.withMesh(it) != null }
@@ -248,6 +245,16 @@ class DismissPlateNoticeUseCase(
         val MODIFIED_GCODE_WARNINGS = listOf("modified_gcodes", "customized_presets")
         const val STEP_NOT_UTF8 = "step_not_utf8"
     }
+}
+
+/**
+ * GLGizmosManager::check_gizmos_closed_except(Undefined): no tool of the
+ * canvas is open; else OrcaSlicer's notification asks to close them first.
+ */
+internal fun PlateRepository.gizmosClosed(): Boolean {
+    if (!state.value.gizmoOpen) return true
+    update { it.copy(plateNotices = it.plateNotices + CLOSE_TOOLS_FIRST) }
+    return false
 }
 
 /** GLGizmosManager::check_gizmos_closed_except()'s notification. */

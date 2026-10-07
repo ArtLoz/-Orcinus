@@ -1445,6 +1445,7 @@ internal object NativeBindings {
     external fun paintStroke(
         origin: DoubleArray,
         direction: DoubleArray,
+        path: DoubleArray,
         state: Int,
         radius: Double,
         tool: Long,

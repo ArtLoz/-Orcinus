@@ -370,7 +370,7 @@ internal class AssemblyActions(
  * window's warnings. The desktop app's Shift is "Select point", point to point.
  */
 @Composable
-internal fun AssemblyPanel(mode: MeasureMode, actions: MeasureActions, assembly: AssemblyActions, imperial: Boolean) {
+internal fun AssemblyPanel(mode: MeasureMode, actions: MeasureActions, assembly: AssemblyActions, imperial: Boolean, inAssemblyView: Boolean = false) {
     val assemblyMode = mode.assembly ?: return
     val measurement = mode.measurement
     val faceToFace = assemblyMode == AssemblyMode.FACE_FACE
@@ -514,7 +514,8 @@ internal fun AssemblyPanel(mode: MeasureMode, actions: MeasureActions, assembly:
             if (measurement.wrongFeatureTip) {
                 add(orcaString(if (faceToFace) "Warning: please select Plane's feature." else "Warning: please select Point's or Circle's feature."))
             }
-            if (measurement.hitVolumes == 2 && !measurement.sameObject) {
+            // not_assembled_warning: of the 3D view's canvas alone (CanvasView3D).
+            if (measurement.hitVolumes == 2 && !measurement.sameObject && !inAssemblyView) {
                 add(
                     orcaString("Warning") + ": " +
                         orcaString("It is recommended to assemble objects first,\nbecause they are restricted to the bed \nand only parts can be lifted."),

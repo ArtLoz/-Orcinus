@@ -139,6 +139,7 @@ import app.orcinus.shadow.core.model.WipeTowerOutcome
 import app.orcinus.shadow.core.model.bedPreviewOf
 import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
+import app.orcinus.shadow.core.model.pathValues
 import app.orcinus.shadow.core.model.values
 import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.BrimEarsEditor
@@ -1056,6 +1057,7 @@ class RemoteSlicerEngine(
             service().paintStroke(
                 doubleArrayOf(stroke.origin.x, stroke.origin.y, stroke.origin.z),
                 doubleArrayOf(stroke.direction.x, stroke.direction.y, stroke.direction.z),
+                stroke.pathValues(),
                 stroke.state,
                 stroke.radius,
                 stroke.tool.name,

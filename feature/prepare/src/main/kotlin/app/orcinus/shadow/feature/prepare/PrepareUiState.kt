@@ -32,6 +32,7 @@ import app.orcinus.shadow.core.model.MeshBooleanPicks
 import app.orcinus.shadow.core.model.ModelInspection
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintState
 import app.orcinus.shadow.core.model.PaintTool
 import app.orcinus.shadow.core.model.PaintedFacets
 import app.orcinus.shadow.core.model.PartPlate
@@ -99,13 +100,17 @@ import app.orcinus.shadow.domain.plate.spiralVaseMode
 import app.orcinus.shadow.render.scene.AssemblyTransforms
 import app.orcinus.shadow.render.scene.CutPlanes
 import app.orcinus.shadow.render.scene.LayerRangeHint
+import app.orcinus.shadow.render.scene.PaintCursor
+import app.orcinus.shadow.render.scene.PaintCursorShape
 import app.orcinus.shadow.render.scene.PaintSectionView
 import app.orcinus.shadow.render.scene.PlateClearance
 import app.orcinus.shadow.render.scene.PlateGizmo
 import app.orcinus.shadow.render.scene.VolumeScaleFrame
 import app.orcinus.shadow.render.scene.WIPE_TOWER_INDEX
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.pow
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /** An object's instance offset, which OrcaSlicer's move window shows as its position, in millimetres. */
@@ -297,6 +302,8 @@ data class PrepareUiState(
     val layerSequencePrompt: Boolean = false,
     /** GLGizmoCut3D::on_is_selectable(): the toolbar has Cut unless the app is in simple mode. */
     val cutSelectable: Boolean = true,
+    /** wxGetApp().get_mode() != comSimple: the text and SVG tools offer "Modifier" among their operations. */
+    val modifiersOffered: Boolean = true,
     val bedTypes: List<BedTypeChoice> = emptyList(),
     /** PlateSettingsDialog chooses a plate's own type: a Bambu Lab printer. */
     val plateBedTypeSelectable: Boolean = false,
@@ -311,8 +318,12 @@ data class PrepareUiState(
      * their windows work on as one ("Group Operations"); null otherwise.
      */
     val group: GroupSelection? = null,
-    /** Position of the selected object. */
+    /** Position of the selected object; of the wipe tower's box centre while the tower is selected. */
     val selectedPosition: ObjectPosition?,
+    /** Selection::is_wipe_tower(): the tower is the picked volume. */
+    val wipeTowerSelected: Boolean = false,
+    /** What the tools' on_is_activable() say of the selection. */
+    val tools: ToolActivity = ToolActivity(),
     /** The move window shows "Object coordinates" for the selected copy (ECoordinatesType::Instance). */
     val moveObjectCoordinates: Boolean = false,
     /** The move window offers "Object coordinates": one copy is selected, not the wipe tower. */
@@ -393,26 +404,17 @@ data class PrepareUiState(
         get() = (painting != null || cut != null || brimEars != null || meshBoolean != null) &&
             (sceneObjects.size > 1 || (sceneObjects.firstOrNull()?.instances?.size ?: 0) > 1)
 
-    /**
-     * GLGizmoMove3D, GLGizmoRotate3D and GLGizmoScale3D::on_is_activable():
-     * anything selected, a group of copies too; GLGizmoFlatten's is a single
-     * full instance.
-     */
-    fun canOpen(gizmo: PlateGizmo): Boolean = if (gizmo == PlateGizmo.LAY_ON_FACE) canManipulate else canEditPlate && (selectedObject != null || group != null)
+    /** The manipulation gizmos' on_is_activable() ([ToolActivity.allows]) while the plate can change. */
+    fun canOpen(gizmo: PlateGizmo): Boolean = canEditPlate && tools.allows(gizmo)
 
-    /**
-     * GLGizmoCut3D::on_is_activable(): a copy to cut, which is not a dowel a
-     * cut made an object of (a part of a cut whose one volume is that connector).
-     */
-    val canCut: Boolean
-        get() {
-            val selected = sceneCopies.getOrNull(selectedObject ?: -1)?.plateObject ?: return false
-            val dowel = selected.isCut && selected.parts.isEmpty() && selected.volume.cutInfo.let { it.connector && it.connectorType == CutConnectorType.DOWEL }
-            return canManipulate && !dowel
-        }
+    /** GLGizmoCut3D::on_is_activable() while the plate can change. */
+    val canCut: Boolean get() = canEditPlate && tools.cut
 
-    /** The colour painting tool needs a selected object and more than one filament. */
-    val canPaint: Boolean get() = canManipulate && filamentColors.size > 1
+    /** GLGizmoMmuSegmentation::on_is_activable(): a copy or a volume of it, and more than one filament. */
+    val canPaint: Boolean get() = canEditPlate && tools.colorPainting
+
+    /** GLGizmoPainterBase::on_is_activable() of the support, seam and fuzzy skin painting: a single full instance. */
+    val canPaintFacets: Boolean get() = canEditPlate && tools.singleFullInstance
 
     /**
      * Plater::can_arrange(), which also enables auto orient: the plate has
@@ -464,8 +466,10 @@ data class PaintingMode(
     val kind: PaintKind = PaintKind.COLOR,
     /** The state the finger paints ([PaintState]); for colour, the filament, 1-based; 0 takes the paint off. */
     val state: Int = 1,
-    val radius: Double = 2.0,
-    val tool: PaintTool = PaintTool.BRUSH,
+    /** GLGizmoPainterBase::m_cursor_radius. */
+    val radius: Double = 1.0,
+    /** Every painting gizmo starts with the circle (m_current_tool). */
+    val tool: PaintTool = PaintTool.CIRCLE,
     /** The angle the smart fill keeps to (m_smart_fill_angle), in degrees. */
     val fillAngle: Double = 30.0,
     /**
@@ -510,8 +514,42 @@ data class PaintingMode(
     val sectionPlane: ClippingPlane? = null,
     val section: ScenePath? = null,
 ) {
-    /** ToolType::BRUSH: the strokes "Vertical" and "Horizontal" keep to a column or a row. */
-    val brushing: Boolean get() = tool == PaintTool.BRUSH || tool == PaintTool.CIRCLE || tool == PaintTool.TRIANGLE || tool == PaintTool.HEIGHT_RANGE
+    /**
+     * ToolType::BRUSH: the strokes "Vertical" and "Horizontal" keep to a
+     * column or a row, but the height range's, which gizmo_event() takes
+     * before it applies them.
+     */
+    val brushing: Boolean get() = tool == PaintTool.BRUSH || tool == PaintTool.CIRCLE || tool == PaintTool.TRIANGLE
+
+    /** get_cursor_radius_min(): GLGizmoSeam's and GLGizmoMmuSegmentation's own, GLGizmoPainterBase's for the others. */
+    val radiusMin: Double
+        get() = when (kind) {
+            PaintKind.SEAM -> 0.05
+            PaintKind.COLOR -> 0.1
+            else -> 0.4
+        }
+
+    /**
+     * render_cursor(): the circle, the sphere or the height range of the
+     * brush, in the colour of the right mouse button while the finger paints
+     * as it would (blocking supports or the seam, taking fuzzy skin off);
+     * none for the fills, the triangles and the gap fill.
+     */
+    val cursor: PaintCursor?
+        get() {
+            val shape = when (tool) {
+                PaintTool.CIRCLE -> PaintCursorShape.CIRCLE
+                PaintTool.BRUSH -> PaintCursorShape.SPHERE
+                PaintTool.HEIGHT_RANGE -> PaintCursorShape.HEIGHT_RANGE
+                else -> return null
+            }
+            val rightButton = when (kind) {
+                PaintKind.SUPPORTS, PaintKind.SEAM -> state == PaintState.BLOCKER
+                PaintKind.FUZZY_SKIN -> state == PaintState.NONE
+                PaintKind.COLOR -> false
+            }
+            return PaintCursor(shape, radius, cursorHeight, rightButton)
+        }
 }
 
 /**
@@ -688,8 +726,8 @@ data class BrimEarsMode(
     val selected: Set<Int> = emptySet(),
     val held: Int? = null,
     val headDiameter: Double? = null,
-    val maxAngle: Double = 125.0,
-    val detectionRadius: Double = 1.0,
+    val maxAngle: Double = MAX_ANGLE,
+    val detectionRadius: Double = DETECTION_RADIUS,
     val invalid: Set<Int> = emptySet(),
     val hover: Vector3? = null,
     val sectionPosition: Double = 0.0,
@@ -698,6 +736,12 @@ data class BrimEarsMode(
 ) {
     /** clp_dist != 0. ? clp : nullptr: the plane a press passes by while the section clips. */
     val clipping: ClippingPlane? get() = sectionPlane.takeIf { sectionPosition > 0.0 }
+
+    companion object {
+        /** GLGizmoBrimEars::m_max_angle and m_detection_radius as the gizmo starts. */
+        const val MAX_ANGLE = 125.0
+        const val DETECTION_RADIUS = 1.0
+    }
 }
 
 /**
@@ -747,8 +791,8 @@ data class TextMode(
     /** GLGizmoEmboss::m_keep_up: the lock beside Rotation. */
     val keepUp: Boolean = true,
 ) {
-    /** Whether the text is white spaces alone, which embosses nothing (is_text_empty()). */
-    val blank: Boolean get() = text.isBlank()
+    /** is_text_empty(): the text holds nothing but spaces, new lines, tabs and returns, and embosses nothing. */
+    val blank: Boolean get() = text.all { it == ' ' || it == '\n' || it == '\t' || it == '\r' }
 
     /** ModelVolume::is_the_only_one_part(): the text is its object, which takes no other operation. */
     val onlyPart: Boolean get() = described?.onlyPart != false
@@ -962,6 +1006,92 @@ internal fun PlateState.selectedVolume(view: PrepareViewState): SelectedVolume? 
     return SelectedVolume(part, volume.mesh, index, volume.placement, view.volumeDescription?.takeIf { it.index == index }?.description)
 }
 
+/**
+ * on_is_activable() of the tools for the selection, whatever the plate can do
+ * now, which GLGizmosManager::refresh_on_off_state() closes a tool by.
+ */
+data class ToolActivity(
+    /** The copy selected alone, or with volumes of it; null for none, several, or the wipe tower. */
+    val copy: PlateInstanceId? = null,
+    /** Selection::is_single_full_instance(): one copy, whole. */
+    val singleFullInstance: Boolean = false,
+    /** Several copies ("Group Operations"). */
+    val group: Boolean = false,
+    /** Selection::is_wipe_tower(). */
+    val wipeTower: Boolean = false,
+    /** GLGizmoCut3D: a single full instance, of no dowel a cut made, while no variable layer height is on. */
+    val cut: Boolean = false,
+    /** GLGizmoMmuSegmentation: a copy or volumes of it (is_any_volume()), and more than one filament. */
+    val colorPainting: Boolean = false,
+    /** GLGizmoMeshBoolean: a single full instance of several volumes. */
+    val meshBoolean: Boolean = false,
+    /** GLGizmoMeasure: a volume or more, in the assembly view with an explosion ratio of 1. */
+    val measure: Boolean = false,
+    /** GLGizmoAssembly: two volumes or more, in the assembly view with an explosion ratio of 1. */
+    val assembly: Boolean = false,
+) {
+    /**
+     * GLGizmoMove3D::on_is_activable(): anything selected, the wipe tower too;
+     * GLGizmoRotate3D and GLGizmoScale3D: anything but the wipe tower;
+     * GLGizmoFlatten: a single full instance.
+     */
+    fun allows(gizmo: PlateGizmo): Boolean = when (gizmo) {
+        PlateGizmo.MOVE -> copy != null || group || wipeTower
+        PlateGizmo.ROTATE, PlateGizmo.SCALE -> copy != null || group
+        PlateGizmo.LAY_ON_FACE -> singleFullInstance
+    }
+}
+
+internal fun PlateState.toolActivity(view: PrepareViewState): ToolActivity {
+    val tower = view.wipeTowerSelected && wipeTower != null
+    val copy = selectedInstance?.takeIf { !tower && objects.withMeshOrNull(it.mesh) != null }
+    val target = copy?.let { objects.withMeshOrNull(it.mesh) }
+    val singleFullInstance = copy != null && selectedPart == null
+    // GLGizmoCut3D::on_is_activable(): not the dowel a cut made an object of (a part of a cut whose one volume is that connector).
+    val dowel = target != null && target.isCut && target.parts.isEmpty() && target.volume.cutInfo.let { it.connector && it.connectorType == CutConnectorType.DOWEL }
+    val explosionOne = !view.assemblyView || abs(view.explosionRatio - 1.0) < EXPLOSION_RATIO_EPSILON
+    // Selection::volumes_count(): a copy in the assembly view has its model parts alone.
+    val volumes = measuredVolumes().sumOf { volume ->
+        if (volume.volumeIndex != null) {
+            1
+        } else {
+            objects.getOrNull(volume.objectIndex)?.let { 1 + if (view.assemblyView) it.parts.count { part -> part.type == VolumeType.PART } else it.parts.size } ?: 0
+        }
+    }
+    return ToolActivity(
+        copy = copy,
+        singleFullInstance = singleFullInstance,
+        group = selectedInstances.size > 1 && selectedPart == null && !tower && !view.assemblyView,
+        wipeTower = tower,
+        cut = singleFullInstance && !dowel && !(layerEditing && !view.assemblyView),
+        colorPainting = copy != null && (presets?.filamentColors.orEmpty().size > 1),
+        meshBoolean = singleFullInstance && !view.assemblyView && target?.parts?.isNotEmpty() == true,
+        measure = !tower && explosionOne && volumes > 0,
+        assembly = !tower && explosionOne && volumes >= 2,
+    )
+}
+
+private fun List<PlateObject>.withMeshOrNull(mesh: ScenePath): PlateObject? = firstOrNull { it.mesh == mesh }
+
+/**
+ * Selection::get_bounding_box() of the wipe tower on the current plate: the
+ * box of its estimated shape (GLVolumeCollection::load_wipe_tower_preview()),
+ * turned by its rotation about its front left corner.
+ */
+private fun PlateState.wipeTowerCenter(): Vector3? {
+    val tower = wipeTower ?: return null
+    val origin = plateOrigins().getOrElse(currentPlate) { Point2(0.0, 0.0) }
+    val angle = Math.toRadians(tower.rotation)
+    val corners = listOf(0.0 to 0.0, tower.width to 0.0, tower.width to tower.depth, 0.0 to tower.depth).map { (x, y) ->
+        Point2(tower.x + origin.x + x * cos(angle) - y * sin(angle), tower.y + origin.y + x * sin(angle) + y * cos(angle))
+    }
+    val height = if (tower.height == 0.0) WIPE_TOWER_MIN_HEIGHT else tower.height
+    return Vector3((corners.minOf { it.x } + corners.maxOf { it.x }) / 2, (corners.minOf { it.y } + corners.maxOf { it.y }) / 2, height / 2)
+}
+
+/** load_wipe_tower_preview(): a tower of no height stands 0.1 mm tall. */
+private const val WIPE_TOWER_MIN_HEIGHT = 0.1
+
 internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState {
     val gizmo = view.gizmo
     val rotationStart = view.rotationStart
@@ -998,6 +1128,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
     }
     // The plate changes once OrcaSlicer has the presets it places objects with.
     val canEditPlate = !busy && !slicingAll && engine.availability == EngineAvailability.READY && profiles != null
+    val tools = toolActivity(view)
     // "Group Operations": several copies, and nothing of them alone, in the 3D view.
     val group = if (selectedInstances.size > 1 && selectedPart == null && !view.wipeTowerSelected && !view.assemblyView) {
         val chosen = copies.filter { it.id in selectedInstances }
@@ -1029,7 +1160,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         selectionMenu = takeIf { !view.assemblyView && it.selectsSeveralObjects() }
             ?.let { selectionMenuState(it, canEditPlate, clipboard, settingsClipboard, emptyList()) },
         // GLGizmosManager::refresh_on_off_state(): a gizmo the selection can't take closes.
-        gizmo = gizmo.takeIf { canEditPlate && (selectedObject != null || group != null && it != PlateGizmo.LAY_ON_FACE) },
+        gizmo = gizmo?.takeIf { canEditPlate && tools.allows(it) },
         flatteningPlanes = if (gizmo == PlateGizmo.LAY_ON_FACE) view.flatteningPlanes else emptyList(),
         painting = view.painting?.takeIf { mode -> objects.any { it.mesh == mode.mesh } && canEditPlate },
         cut = view.cut?.takeIf { mode -> objects.any { it.mesh == mode.mesh } && canEditPlate },
@@ -1053,8 +1184,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
                 },
             )
         },
-        canMeshBoolean = canEditPlate && !view.assemblyView && selectedPart == null &&
-            selectedInstances.singleOrNull()?.let { copy -> objects.firstOrNull { it.mesh == copy.mesh }?.parts?.isNotEmpty() } == true,
+        canMeshBoolean = canEditPlate && tools.meshBoolean,
         assemblyView = AssemblyViewMode(
             view.explosionRatio,
             view.assemblyHidden,
@@ -1069,14 +1199,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         measuredVolumes = selectedPart?.let { part -> objects.firstOrNull { it.mesh == part.mesh }?.volumeAt(part.index)?.mesh }?.let(::setOf),
         // In the assembly view the tools need an explosion ratio of 1 ("Please confirm
         // explosion ratio = 1"), and a copy there has its model parts alone.
-        canMeasure = canEditPlate && measuredVolumes().isNotEmpty() && (!view.assemblyView || abs(view.explosionRatio - 1.0) < EXPLOSION_RATIO_EPSILON),
-        canAssemble = canEditPlate && (!view.assemblyView || abs(view.explosionRatio - 1.0) < EXPLOSION_RATIO_EPSILON) && measuredVolumes().sumOf { volume ->
-            if (volume.volumeIndex != null) {
-                1
-            } else {
-                objects.getOrNull(volume.objectIndex)?.let { 1 + if (view.assemblyView) it.parts.count { part -> part.type == VolumeType.PART } else it.parts.size } ?: 0
-            }
-        } >= 2,
+        canMeasure = canEditPlate && tools.measure,
+        canAssemble = canEditPlate && tools.assembly,
         wipeTower = wipeTower,
         builtWipeTower = result?.wipeTower,
         filamentColors = presets?.filamentColors.orEmpty().mapNotNull(::parseFilamentColor),
@@ -1127,12 +1251,16 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         layerSequencePrompt = layerSequencePrompt,
         // wxGetApp().get_mode(), which the tabs describe their settings in.
         cutSelectable = settingsTabs[PresetKind.PRINT]?.settings?.mode != SettingsMode.SIMPLE,
+        modifiersOffered = settingsTabs[PresetKind.PRINT]?.settings?.mode != SettingsMode.SIMPLE,
         bedTypes = presets?.bedTypes.orEmpty(),
         plateBedTypeSelectable = presets?.plateBedTypeSelectable == true,
         spiralVaseMode = spiralVaseMode(),
         printerI3 = presetValue(PresetKind.PRINTER, "printer_structure") == "i3",
         group = group,
-        selectedPosition = if (group != null) {
+        selectedPosition = if (tools.wipeTower) {
+            // update_settings_value() of the wipe tower: the centre of its box.
+            wipeTowerCenter()?.let { ObjectPosition(it.x, it.y, it.z) }
+        } else if (group != null) {
             // update_settings_value() of a group: "Translate" from where it stands.
             ObjectPosition(0.0, 0.0, 0.0)
         } else if (volume != null && selected != null) {
@@ -1141,6 +1269,8 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
         } else {
             (if (view.assemblyView) assembled else selected?.placement)?.columns?.let { ObjectPosition(it[12], it[13], it[14]) }
         },
+        wipeTowerSelected = tools.wipeTower,
+        tools = tools,
         moveObjectCoordinates = moveObjectCoordinates,
         canMoveObjectCoordinates = selectedObject != null && selectedInstances.size == 1 && !view.wipeTowerSelected,
         moveFrame = (if (view.assemblyView) assembled else selected?.placement)?.takeIf { moveObjectCoordinates },
@@ -1251,7 +1381,7 @@ internal fun PlateState.toPrepareUiState(view: PrepareViewState): PrepareUiState
                 CoordinateSystem.INSTANCE -> selected.placement
                 else -> selected.placement * volume.matrix
             }
-            VolumeScaleFrame(reference, volumeBox)
+            VolumeScaleFrame(reference, volumeBox, selected.placement, volume.matrix)
         } else {
             null
         },
@@ -1361,9 +1491,20 @@ data class CutMode(
     val drawingLine: Boolean = false,
     /** The copy's offset, which the cut line checks its plane against. */
     val instanceOffset: Vector3 = Vector3(0.0, 0.0, 0.0),
-    /** The gizmo's snapshots (on_save()), the one shown at [snapshot]. */
+    /**
+     * The gizmo's snapshots on the Undo stack (on_save()), each taken before
+     * its action, and once Undo was pressed the state it left last (the
+     * topmost snapshot); [snapshot] is the one shown, or past the last while
+     * the gizmo stands as it does now, which no snapshot holds yet.
+     */
     val snapshots: List<CutSnapshot> = emptyList(),
     val snapshot: Int = 0,
+    /**
+     * m_ar_plane_center and m_start_dragging_m: the plane as the last change
+     * that was let go left it, which a snapshot keeps while a grabber is
+     * still dragging it.
+     */
+    val archivedPlane: Transform3? = null,
 ) {
     /** m_bb_center, where reset_cut_plane() puts the plane. */
     val boundsCenter: Vector3?
@@ -1447,17 +1588,32 @@ data class CutMode(
     val canRedo: Boolean get() = snapshot < snapshots.lastIndex
 
     /**
-     * Plater::TakeSnapshot of a GizmoAction: the gizmo as it is now, the ones
-     * undone before gone; nothing when it has not changed since the last one.
+     * Plater::TakeSnapshot of a GizmoAction before its action: the gizmo as it
+     * is now joins the stack, and the snapshots undone before are gone, the
+     * one shown with them (UndoRedo::StackImpl::take_snapshot()).
      */
-    fun snapshotted(): CutMode =
-        if (snapshots.getOrNull(snapshot) == current()) this else copy(snapshots = snapshots.take(snapshot + 1) + current(), snapshot = snapshot + 1)
+    fun snapshotted(): CutMode = copy(snapshots = snapshots.take(snapshot) + current(), snapshot = snapshot + 1)
+
+    /**
+     * Undo (StackImpl::undo()): the state the gizmo stands in is captured
+     * first while no snapshot holds it, so Redo comes back to it, and the
+     * snapshot before comes back.
+     */
+    fun undone(): CutMode {
+        if (!canUndo) return this
+        val captured = if (snapshot == snapshots.size) copy(snapshots = snapshots + current()) else this
+        return captured.restored(snapshot - 1)
+    }
+
+    /** Redo: the snapshot after the one shown comes back. */
+    fun redone(): CutMode = if (canRedo) restored(snapshot + 1) else this
 
     /** on_load() of the snapshot at [index]. */
     fun restored(index: Int): CutMode {
         val saved = snapshots[index]
         return copy(
             plane = saved.plane,
+            archivedPlane = saved.plane,
             keepUpper = saved.keepUpper,
             keepLower = saved.keepLower,
             flipUpper = saved.flipUpper,
@@ -1482,7 +1638,7 @@ data class CutMode(
         )
     }
 
-    fun current() = CutSnapshot(plane, keepUpper, keepLower, flipUpper, flipLower, connectors, editingConnectors, kind, groove)
+    fun current() = CutSnapshot(archivedPlane ?: plane, keepUpper, keepLower, flipUpper, flipLower, connectors, editingConnectors, kind, groove)
 
     /**
      * init_input_window_data() and validate_connector_settings(): the window

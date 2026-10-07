@@ -426,6 +426,7 @@ interface ISlicerService {
     PaintingParcel paintStroke(
         in double[] origin,
         in double[] direction,
+        in double[] path,
         int state,
         double radius,
         String tool,

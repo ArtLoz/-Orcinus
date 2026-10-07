@@ -599,6 +599,13 @@ data class PlateHistory(
      * which joins [undo] when the tool leaves the plate changed.
      */
     val beforeTool: PlateSnapshot? = null,
+    /**
+     * Plater::priv::m_undo_redo_stack_main while a tool works on the gizmos'
+     * stack of its own (enter_gizmos_stack()): this history is that stack, and
+     * the main one waits here with the state the tool was entered from as its
+     * [beforeTool]; null while the main stack is the active one.
+     */
+    val main: PlateHistory? = null,
 )
 
 /**

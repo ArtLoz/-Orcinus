@@ -137,6 +137,7 @@ import app.orcinus.shadow.core.model.ObjectEdit
 import app.orcinus.shadow.core.model.ObjectPartId
 import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PaintKind
+import app.orcinus.shadow.core.model.PaintRay
 import app.orcinus.shadow.core.model.PaintState
 import app.orcinus.shadow.core.model.PaintTool
 import app.orcinus.shadow.core.model.PlateInstance
@@ -380,7 +381,7 @@ internal fun PrepareRoute(
                 },
                 pasteProcessSettings = { viewModel.pasteSelectionProcessSettings() },
                 setFilament = { viewModel.setSelectionFilament(it) },
-                replaceAll = { selectionReplacementFolder.launch(null) },
+                replaceAll = { if (viewModel.toolsClosedForReplace()) selectionReplacementFolder.launch(null) },
                 export = { format, multi ->
                     selectionExportFormat = format
                     if (multi) selectionExportFolder.launch(null) else selectionExport.launch(viewModel.selectionExportName(format, untitledName))
@@ -411,7 +412,7 @@ internal fun PrepareRoute(
             invalidateCutInfo = viewModel::invalidateCutInfoAt,
             simplify = viewModel::simplifyAt,
             replace = { index ->
-                viewModel.copyOf(index)?.let { copy ->
+                viewModel.copyOf(index)?.takeIf { viewModel.toolsClosedForReplace() }?.let { copy ->
                     replaceTarget = copy.mesh.value
                     replaceInstance = copy.instance
                     replaceVolume = 0
@@ -426,7 +427,7 @@ internal fun PrepareRoute(
                 }
             },
             replaceAll = { index ->
-                viewModel.copyOf(index)?.let { copy ->
+                viewModel.copyOf(index)?.takeIf { viewModel.toolsClosedForReplace() }?.let { copy ->
                     replaceAllTarget = copy.mesh.value
                     replaceAllInstance = copy.instance
                     replacementFolder.launch(null)
@@ -457,7 +458,7 @@ internal fun PrepareRoute(
                 changeType = viewModel::setVolumeType,
                 reloadFromDisk = viewModel::reloadVolumeFromDisk,
                 replace = { index, volume ->
-                    viewModel.copyOf(index)?.let { copy ->
+                    viewModel.copyOf(index)?.takeIf { viewModel.toolsClosedForReplace() }?.let { copy ->
                         replaceTarget = copy.mesh.value
                         replaceInstance = copy.instance
                         replaceVolume = volume
@@ -545,6 +546,7 @@ internal fun PrepareRoute(
             selectPart = viewModel::selectCutPart,
             drawLine = viewModel::setCutLineDrawing,
             line = viewModel::cutLineEvent,
+            reset = viewModel::resetCut,
             connectors = CutConnectorActions(
                 edit = viewModel::editCutConnectors,
                 confirm = viewModel::confirmCutConnectors,
@@ -556,7 +558,9 @@ internal fun PrepareRoute(
                 deleteSelected = viewModel::deleteCutConnectors,
                 setSettings = viewModel::setCutConnectorSettings,
                 setSnap = viewModel::setCutSnap,
-                settingsDone = viewModel::snapshotCutConnectors,
+                settingsDone = viewModel::finishCutConnectorEdit,
+                setAngle = viewModel::setCutConnectorAngle,
+                resetAngle = viewModel::resetCutConnectorAngle,
             ),
         ),
         textActions = TextActions(
@@ -588,6 +592,7 @@ internal fun PrepareRoute(
             setCollection = viewModel::setTextCollection,
             drag = viewModel::dragText,
             turn = viewModel::turnText,
+            openByDoubleTap = viewModel::doubleTapVolume,
         ),
         textFamilies = textFamilies,
         svgActions = SvgActions(
@@ -663,6 +668,7 @@ internal fun PrepareRoute(
             close = viewModel::closeBrimEars,
             touch = viewModel::brimEarsTouch,
             setDiameter = viewModel::setBrimEarDiameter,
+            typeDiameter = viewModel::typeBrimEarDiameter,
             setMaxAngle = viewModel::setBrimEarMaxAngle,
             setDetectionRadius = viewModel::setBrimEarDetectionRadius,
             generate = viewModel::generateBrimEars,
@@ -699,8 +705,8 @@ internal fun PrepareRoute(
 
 /** What a painting tool does while it is open (GLGizmoPainterBase). */
 internal class PaintingActions(
-    /** A touch of the finger, as a ray in world coordinates; [starts] for the first of a stroke. */
-    val paint: (origin: Vector3, direction: Vector3, starts: Boolean) -> Unit,
+    /** A touch of the finger, as rays in world coordinates: where it is, then its path back to its last touch; [starts] for the first of a stroke. */
+    val paint: (rays: List<PaintRay>, starts: Boolean) -> Unit,
     /** The state the finger paints ([PaintState]); for colour, the filament. */
     val setState: (Int) -> Unit,
     val setRadius: (Double) -> Unit,
@@ -733,7 +739,7 @@ internal class PaintingActions(
     val remap: () -> Unit = {},
 ) {
     companion object {
-        val NONE = PaintingActions({ _, _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+        val NONE = PaintingActions({ _, _ -> }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
     }
 }
 
@@ -857,7 +863,15 @@ internal fun PrepareScreen(
                 onMoveWipeTower = onMoveWipeTower,
                 painting = state.painting?.let {
                     // The brush alone keeps to a column or a row (ToolType::BRUSH).
-                    PaintingView(it.mesh, it.kind, it.highlightAngle, it.verticalOnly && it.brushing, state.paintSection, it.horizontalOnly && it.brushing)
+                    PaintingView(
+                        it.mesh,
+                        it.kind,
+                        it.highlightAngle,
+                        it.verticalOnly && it.brushing,
+                        state.paintSection,
+                        it.horizontalOnly && it.brushing,
+                        it.cursor,
+                    )
                 },
                 onPaintSection = paintingActions.sectionPlane,
                 onPaint = paintingActions.paint,
@@ -903,7 +917,7 @@ internal fun PrepareScreen(
                 selectedObject = state.selectedObject,
                 selectedObjects = state.selectedObjects,
                 gizmo = state.gizmo,
-                moveFrame = state.moveFrame.takeIf { state.gizmo == PlateGizmo.MOVE },
+                moveFrame = state.moveFrame.takeIf { state.gizmo == PlateGizmo.MOVE || state.gizmo == PlateGizmo.SCALE },
                 flatteningPlanes = state.flatteningPlanes,
                 wireframes = state.wireframes,
                 editable = state.canEditPlate,
@@ -994,6 +1008,7 @@ internal fun PrepareScreen(
                 onMeshBooleanPick = meshBooleanActions.pick,
                 assembly = state.assemblyView?.let { AssemblyView(it.explosionRatio, it.hidden, it.sectionPosition, it.sectionResets, it.section, it.partSelection) },
                 onSelectVolume = assemblyViewActions.selectVolume,
+                onDoubleTapVolume = textActions.openByDoubleTap,
                 onAssemblySelection = { assemblySelection = it },
                 onPlaceInAssembly = assemblyViewActions.place,
                 onAssemblySection = assemblyViewActions.sectionPlane,
@@ -1267,9 +1282,10 @@ internal fun PrepareScreen(
                         state.painting?.kind == PaintKind.SUPPORTS -> SupportPaintingPanel(state.painting, paintingActions)
                         state.painting?.kind == PaintKind.SEAM -> SeamPaintingPanel(state.painting, paintingActions)
                         state.painting?.kind == PaintKind.FUZZY_SKIN -> FuzzySkinPaintingPanel(state.painting, paintingActions)
-                        state.text != null -> TextPanel(state.text, textFamilies, textActions, canvas.imperialUnits, eye = viewCamera::eye)
-                        state.svg != null -> SvgPanel(state.svg, svgActions, canvas.imperialUnits, eye = viewCamera::eye)
-                        state.measure?.assembly != null -> AssemblyPanel(state.measure, measureActions, assemblyActions, canvas.imperialUnits)
+                        state.text != null -> TextPanel(state.text, textFamilies, textActions, canvas.imperialUnits, eye = viewCamera::eye, modifiersOffered = state.modifiersOffered)
+                        state.svg != null -> SvgPanel(state.svg, svgActions, canvas.imperialUnits, eye = viewCamera::eye, modifiersOffered = state.modifiersOffered)
+                        state.measure?.assembly != null ->
+                            AssemblyPanel(state.measure, measureActions, assemblyActions, canvas.imperialUnits, inAssemblyView = state.assemblyView != null)
                         state.measure != null -> MeasurePanel(state.measure, measureActions, canvas.imperialUnits)
                         state.meshBoolean != null -> MeshBooleanPanel(
                             state.meshBoolean,
@@ -2162,20 +2178,12 @@ private fun CanvasToolbar(
             enabled = state.canMeshBoolean || state.meshBoolean != null,
             selected = state.meshBoolean != null,
         )
-        // GLGizmoMmuSegmentation: the object is painted with the filaments of the plate.
-        OrcaCanvasTool(
-            icon = DesignR.drawable.orca_mmu_segmentation,
-            contentDescription = stringResource(R.string.gizmo_color_painting),
-            onClick = { onTogglePainting(PaintKind.COLOR) },
-            enabled = state.canPaint,
-            selected = state.painting?.kind == PaintKind.COLOR,
-        )
         // GLGizmoFdmSupports: supports are enforced or blocked where they are painted.
         OrcaCanvasTool(
             icon = DesignR.drawable.orca_toolbar_support,
             contentDescription = stringResource(R.string.gizmo_support_painting),
             onClick = { onTogglePainting(PaintKind.SUPPORTS) },
-            enabled = state.canManipulate,
+            enabled = state.canPaintFacets,
             selected = state.painting?.kind == PaintKind.SUPPORTS,
         )
         // GLGizmoSeam: the seam is enforced or blocked where it is painted.
@@ -2183,7 +2191,7 @@ private fun CanvasToolbar(
             icon = DesignR.drawable.orca_toolbar_seam,
             contentDescription = stringResource(R.string.gizmo_seam_painting),
             onClick = { onTogglePainting(PaintKind.SEAM) },
-            enabled = state.canManipulate,
+            enabled = state.canPaintFacets,
             selected = state.painting?.kind == PaintKind.SEAM,
         )
         // GLGizmoFuzzySkin: the walls get fuzzy skin where it is painted.
@@ -2191,9 +2199,20 @@ private fun CanvasToolbar(
             icon = DesignR.drawable.orca_toolbar_fuzzy_skin_paint,
             contentDescription = stringResource(R.string.gizmo_fuzzy_skin_painting),
             onClick = { onTogglePainting(PaintKind.FUZZY_SKIN) },
-            enabled = state.canManipulate,
+            enabled = state.canPaintFacets,
             selected = state.painting?.kind == PaintKind.FUZZY_SKIN,
         )
+        // GLGizmoMmuSegmentation: the object is painted with the filaments of the plate;
+        // on_is_selectable(): the toolbar has it with more than one filament.
+        if (state.filamentColors.size > 1) {
+            OrcaCanvasTool(
+                icon = DesignR.drawable.orca_mmu_segmentation,
+                contentDescription = stringResource(R.string.gizmo_color_painting),
+                onClick = { onTogglePainting(PaintKind.COLOR) },
+                enabled = state.canPaint,
+                selected = state.painting?.kind == PaintKind.COLOR,
+            )
+        }
         // GLGizmoEmboss: the tool opens on the selected text, or adds a text.
         OrcaCanvasTool(
             icon = DesignR.drawable.orca_toolbar_text,
@@ -2306,7 +2325,7 @@ private fun PaintingPanel(state: PrepareUiState, painting: PaintingMode, actions
                     PaintingSlider(
                         label = orcaString("Brush size"),
                         value = painting.radius.toFloat(),
-                        range = BRUSH_MIN..BRUSH_MAX,
+                        range = painting.radiusMin.toFloat()..BRUSH_MAX,
                         text = String.format(textLocale(), "%.2f", painting.radius),
                         onChange = { actions.setRadius(it.toDouble()) },
                     )
@@ -2530,7 +2549,7 @@ private fun SupportPaintingPanel(painting: PaintingMode, actions: PaintingAction
             PaintingSlider(
                 label = orcaString("Brush size"),
                 value = painting.radius.toFloat(),
-                range = BRUSH_MIN..BRUSH_MAX,
+                range = painting.radiusMin.toFloat()..BRUSH_MAX,
                 text = String.format(textLocale(), "%.2f", painting.radius),
                 onChange = { actions.setRadius(it.toDouble()) },
             )
@@ -2590,7 +2609,7 @@ private fun SeamPaintingPanel(painting: PaintingMode, actions: PaintingActions) 
         PaintingSlider(
             label = orcaString("Brush size"),
             value = painting.radius.toFloat(),
-            range = BRUSH_MIN..BRUSH_MAX,
+            range = painting.radiusMin.toFloat()..BRUSH_MAX,
             text = String.format(textLocale(), "%.2f", painting.radius),
             onChange = { actions.setRadius(it.toDouble()) },
         )
@@ -2652,7 +2671,7 @@ private fun FuzzySkinPaintingPanel(painting: PaintingMode, actions: PaintingActi
             else -> PaintingSlider(
                 label = orcaString("Brush size"),
                 value = painting.radius.toFloat(),
-                range = BRUSH_MIN..BRUSH_MAX,
+                range = painting.radiusMin.toFloat()..BRUSH_MAX,
                 text = String.format(textLocale(), "%.2f", painting.radius),
                 onChange = { actions.setRadius(it.toDouble()) },
             )
@@ -2800,8 +2819,7 @@ internal fun PaintingSlider(
     }
 }
 
-/** GLGizmoPainterBase::get_cursor_radius_min/max for a finger. */
-private const val BRUSH_MIN = 0.4f
+/** GLGizmoPainterBase::CursorRadiusMax; the least is the tool's own ([PaintingMode.radiusMin]). */
 private const val BRUSH_MAX = 8.0f
 
 /** GLGizmoPainterBase::SmartFillAngleMin and SmartFillAngleMax. */
@@ -3219,8 +3237,10 @@ internal fun PositionField(
     onValue: (Double) -> Unit,
     modifier: Modifier = Modifier,
     onFocusChange: (Boolean) -> Unit = {},
+    /** The ImGui format the field shows the value in. */
+    format: String = "%.2f",
 ) {
-    val shown = String.format(Locale.ROOT, "%.2f", value)
+    val shown = String.format(Locale.ROOT, format, value)
     var text by remember(shown) { mutableStateOf(shown) }
     val focusManager = LocalFocusManager.current
     var focused by remember { mutableStateOf(false) }

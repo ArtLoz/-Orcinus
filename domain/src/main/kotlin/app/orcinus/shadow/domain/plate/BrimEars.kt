@@ -96,6 +96,19 @@ class EditBrimEarsUseCase(
         opened = null
         editor.endBrimEars()
     }
+
+    /**
+     * on_set_state() turning the tool on (Plater::enter_gizmos_stack()): its
+     * snapshots go to a stack of its own, which Undo and Redo work on while
+     * it is open.
+     */
+    fun enter() = repository.update { it.enteredGizmosStack() }
+
+    /**
+     * on_set_state() turning it off (leave_gizmos_stack()): the main stack is
+     * the active one again, with the ears edited as one step ("Leaving Brim Ears").
+     */
+    fun leave() = repository.update { it.leftGizmosStack() }
 }
 
 /**

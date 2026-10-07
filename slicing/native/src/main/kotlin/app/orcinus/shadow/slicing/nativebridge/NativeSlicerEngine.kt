@@ -203,6 +203,7 @@ import app.orcinus.shadow.core.model.bedPreviewOf
 import app.orcinus.shadow.core.model.connectorKinds
 import app.orcinus.shadow.core.model.connectorValues
 import app.orcinus.shadow.core.model.filamentUsagesOf
+import app.orcinus.shadow.core.model.pathValues
 import app.orcinus.shadow.core.model.values
 import app.orcinus.shadow.slicing.api.AppConfigStore
 import app.orcinus.shadow.slicing.api.BrimEarsEditor
@@ -1849,6 +1850,7 @@ class NativeSlicerEngine(context: Context) :
             NativeBindings.paintStroke(
                 origin = doubleArrayOf(stroke.origin.x, stroke.origin.y, stroke.origin.z),
                 direction = doubleArrayOf(stroke.direction.x, stroke.direction.y, stroke.direction.z),
+                path = stroke.pathValues(),
                 state = stroke.state,
                 radius = stroke.radius,
                 tool = stroke.tool.ordinal.toLong(),

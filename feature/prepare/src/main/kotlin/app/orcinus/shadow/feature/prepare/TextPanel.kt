@@ -1,5 +1,6 @@
 package app.orcinus.shadow.feature.prepare
 
+import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -81,6 +83,7 @@ import app.orcinus.shadow.core.ui.settings.SettingsQuestionDialog
 import app.orcinus.shadow.render.scene.CameraEye
 import app.orcinus.shadow.render.scene.SurfaceHit
 import java.io.File
+import kotlin.math.abs
 import app.orcinus.shadow.core.designsystem.R as DesignR
 
 /** What the text tool's window does (GLGizmoEmboss). */
@@ -131,6 +134,8 @@ internal class TextActions(
     val drag: (Transform3) -> Unit,
     /** The text let go on its rotation ring, turned by the angle (radians) about its own Z axis. */
     val turn: (Double) -> Unit,
+    /** A double tap on the volume (its mesh) of the copy at an index: a text or an SVG opens its tool. */
+    val openByDoubleTap: (index: Int, key: String) -> Unit = { _, _ -> },
 ) {
     companion object {
         val NONE = TextActions(
@@ -150,7 +155,14 @@ internal class TextActions(
  * the font is one the phone has not, only another font can be chosen.
  */
 @Composable
-internal fun TextPanel(mode: TextMode, families: List<TextFontFamily>, actions: TextActions, imperial: Boolean, eye: () -> CameraEye?) {
+internal fun TextPanel(
+    mode: TextMode,
+    families: List<TextFontFamily>,
+    actions: TextActions,
+    imperial: Boolean,
+    eye: () -> CameraEye?,
+    modifiersOffered: Boolean = true,
+) {
     val colors = OrcaTheme.colors
     val style = mode.style
     val stored = mode.storedStyle
@@ -162,12 +174,22 @@ internal fun TextPanel(mode: TextMode, families: List<TextFontFamily>, actions: 
     var naming by remember { mutableStateOf<StyleNaming?>(null) }
     // draw_style_list()'s question before a modified style is left.
     var leavingFor by remember { mutableStateOf<Int?>(null) }
+    // m_scale_height and m_scale_depth: how large the text stands in the world.
+    val heightScale = mode.described?.scaleHeight ?: 1.0
+    val depthScale = mode.described?.scaleDepth ?: 1.0
     PaintingPanelFrame(orcaString("Emboss"), orcaString("Done"), actions.close) {
-        TextInput(mode.text, actions.setText, enabled = editable, font = face?.let { typefaceOf(it.path, it.index) })
-        // draw_text_input()'s warning.
-        if (mode.blank) {
-            Warning(orcaString("Embossed text cannot contain only white spaces."))
-        }
+        // draw_text_input(): the text in its font, at the size the style gives it
+        // (get_imgui_font_size()) within the input's limits, and its warning.
+        val inputFont = remember(face?.path, face?.index) { face?.let { inputFontOf(it.path, it.index) } }
+        val inputSize = inputFont?.let { it.lineHeightPerEm * abs(style.sizeInMm) / POINT_MM * heightScale }
+        TextInput(
+            mode.text,
+            actions.setText,
+            enabled = editable,
+            font = face?.let { typefaceOf(it.path, it.index) },
+            size = (inputSize ?: MIN_INPUT_FONT_SIZE).coerceIn(MIN_INPUT_FONT_SIZE, MAX_INPUT_FONT_SIZE),
+        )
+        inputWarning(mode, known = face != null, font = inputFont, size = inputSize)?.let { Warning(it) }
         // draw_style_list(): the label in OrcaSlicer's colour while the style is a temporary one.
         TextRow(orcaString("Style"), labelColor = if (mode.styleIndex == null) colors.accent else colors.onCanvasPanel) {
             Box(Modifier.weight(1f)) {
@@ -180,8 +202,10 @@ internal fun TextPanel(mode: TextMode, families: List<TextFontFamily>, actions: 
             }
         }
         StyleButtons(mode, editable, onRename = { naming = StyleNaming.RENAME }, onSaveAs = { naming = StyleNaming.SAVE_AS }, actions)
-        // draw_font_list_line(): the font, then italic and bold.
-        TextRow(orcaString("Font")) {
+        // draw_font_list_line(): the font, then italic and bold, and the revert of
+        // the font's changes; the label in the colour of a modified value.
+        val fontChanged = stored != null && fontChanged(style, stored, families)
+        TextRow(orcaString("Font"), labelColor = if (fontChanged || stored == null) colors.labelModified else colors.onCanvasPanel) {
             Box(Modifier.weight(1f)) {
                 OrcaComboField(text = family?.name ?: style.faceName.ifEmpty { " --- " }, onClick = { choosingFont = true })
             }
@@ -201,20 +225,40 @@ internal fun TextPanel(mode: TextMode, families: List<TextFontFamily>, actions: 
                 enabled = editable && face != null,
                 tint = Color.Unspecified,
             )
+            if (fontChanged && stored != null) {
+                RevertButton(orcaString("Revert font changes."), enabled = editable) {
+                    actions.setStyle {
+                        it.copy(
+                            fontPath = stored.fontPath,
+                            collectionNumber = stored.collectionNumber,
+                            faceName = stored.faceName,
+                            boldness = stored.boldness,
+                            skew = stored.skew,
+                        )
+                    }
+                }
+            }
         }
         // draw_height() and draw_depth(): millimetres, or inches with "use_inches",
         // as large as the text stands in the world (rev_input_mm() with
         // m_scale_height and m_scale_depth); the limits hold for the style.
-        val heightScale = mode.described?.scaleHeight ?: 1.0
-        val depthScale = mode.described?.scaleDepth ?: 1.0
-        TextRow(orcaString("Height")) {
+        // Each reverts to the stored style's.
+        val heightChanged = stored != null && abs(style.sizeInMm - stored.sizeInMm) > REVERT_EPSILON
+        TextRow(orcaString("Height"), labelColor = if (heightChanged || stored == null) colors.labelModified else colors.onCanvasPanel) {
             LengthField(style.sizeInMm * heightScale, imperial, enabled = editable) { value ->
                 actions.setStyle { it.copy(sizeInMm = (value / heightScale).coerceIn(SIZE_MIN, SIZE_MAX)) }
             }
+            if (heightChanged && stored != null) {
+                RevertButton(orcaString("Revert text size."), enabled = editable) { actions.setStyle { it.copy(sizeInMm = stored.sizeInMm) } }
+            }
         }
-        TextRow(orcaString("Depth")) {
+        val depthChanged = stored != null && style.depth != stored.depth
+        TextRow(orcaString("Depth"), labelColor = if (depthChanged || stored == null) colors.labelModified else colors.onCanvasPanel) {
             LengthField(style.depth * depthScale, imperial, enabled = editable) { value ->
                 actions.setStyle { it.copy(depth = (value / depthScale).coerceIn(DEPTH_MIN, DEPTH_MAX)) }
+            }
+            if (depthChanged && stored != null) {
+                RevertButton(orcaString("Revert embossed depth."), enabled = editable) { actions.setStyle { it.copy(depth = stored.depth) } }
             }
         }
         // "Advanced"
@@ -242,7 +286,7 @@ internal fun TextPanel(mode: TextMode, families: List<TextFontFamily>, actions: 
         }
         // draw_model_type(): not for a text that is its object.
         if (!mode.onlyPart) {
-            EmbossOperation(mode.described?.type, enabled = editable && !mode.busy, onType = actions.setType)
+            EmbossOperation(mode.described?.type, enabled = editable && !mode.busy, modifiersOffered = modifiersOffered, onType = actions.setType)
         }
         // Reset: every option of the first style but the text and the operation.
         OrcaButton(
@@ -541,14 +585,33 @@ private fun StyleSheet(mode: TextMode, sample: String, onDismiss: () -> Unit, on
 private fun Advanced(mode: TextMode, ascent: Int, stored: TextStyle?, actions: TextActions, imperial: Boolean, collection: Int, eye: () -> CameraEye?) {
     val style = mode.style
     val onlyPart = mode.onlyPart
-    TextCheck(orcaString("Use surface"), style.useSurface, enabled = style.useSurface || !onlyPart) { use ->
-        // when using surface distance is not used
-        actions.setStyle { it.copy(useSurface = use, distance = if (use) null else it.distance) }
-    }
-    TextCheck(orcaString("Per glyph"), style.perGlyph, enabled = style.perGlyph || !onlyPart) { use ->
+    val colors = OrcaTheme.colors
+    val labelColor = { changed: Boolean -> if (changed || stored == null) colors.labelModified else colors.onCanvasPanel }
+    // when using surface distance is not used
+    val useSurface = { use: Boolean -> actions.setStyle { it.copy(useSurface = use, distance = if (use) null else it.distance) } }
+    val surfaceChanged = stored != null && style.useSurface != stored.useSurface
+    TextCheck(
+        orcaString("Use surface"),
+        style.useSurface,
+        enabled = style.useSurface || !onlyPart,
+        labelColor = labelColor(surfaceChanged),
+        revert = stored?.takeIf { surfaceChanged }?.let { { useSurface(it.useSurface) } },
+        revertDescription = orcaString("Revert using of model surface."),
+        onChange = useSurface,
+    )
+    val perGlyphChanged = stored != null && style.perGlyph != stored.perGlyph
+    TextCheck(
+        orcaString("Per glyph"),
+        style.perGlyph,
+        enabled = style.perGlyph || !onlyPart,
+        labelColor = labelColor(perGlyphChanged),
+        revert = stored?.takeIf { perGlyphChanged }?.let { { actions.setStyle { current -> current.copy(perGlyph = it.perGlyph) } } },
+        revertDescription = orcaString("Revert Transformation per glyph."),
+    ) { use ->
         actions.setStyle { it.copy(perGlyph = use) }
     }
-    TextRow(orcaString("Alignment")) {
+    val alignChanged = stored != null && (style.horizontalAlign != stored.horizontalAlign || style.verticalAlign != stored.verticalAlign)
+    TextRow(orcaString("Alignment"), labelColor = labelColor(alignChanged)) {
         TextHorizontalAlign.entries.forEach { align ->
             AlignButton(ALIGN_ICONS_HORIZONTAL.getValue(align), orcaString(ALIGN_NAMES_HORIZONTAL.getValue(align), "Alignment"), style.horizontalAlign == align) {
                 actions.setStyle { it.copy(horizontalAlign = align) }
@@ -560,12 +623,18 @@ private fun Advanced(mode: TextMode, ascent: Int, stored: TextStyle?, actions: T
                 actions.setStyle { it.copy(verticalAlign = align) }
             }
         }
+        if (alignChanged && stored != null) {
+            RevertButton(orcaString("Revert alignment.")) {
+                actions.setStyle { it.copy(horizontalAlign = stored.horizontalAlign, verticalAlign = stored.verticalAlign) }
+            }
+        }
     }
     val halfAscent = (ascent / 2).coerceAtLeast(1)
     val points = orcaString("points")
     val locale = textLocale()
     OptionalSlider(
         label = orcaString("Char gap"),
+        hasRevert = stored != null,
         value = style.charGap?.toFloat(),
         range = -halfAscent.toFloat()..halfAscent.toFloat(),
         text = { String.format(locale, "%.0f %s", it, points) },
@@ -574,6 +643,7 @@ private fun Advanced(mode: TextMode, ascent: Int, stored: TextStyle?, actions: T
     )
     OptionalSlider(
         label = orcaString("Line gap"),
+        hasRevert = stored != null,
         value = style.lineGap?.toFloat(),
         range = -halfAscent.toFloat()..halfAscent.toFloat(),
         text = { String.format(locale, "%.0f %s", it, points) },
@@ -583,6 +653,7 @@ private fun Advanced(mode: TextMode, ascent: Int, stored: TextStyle?, actions: T
     )
     OptionalSlider(
         label = orcaString("Boldness"),
+        hasRevert = stored != null,
         value = style.boldness?.toFloat(),
         range = (ascent * BOLDNESS_GUI_MIN)..(ascent * BOLDNESS_GUI_MAX),
         text = { String.format(locale, "%.0f %s", it, points) },
@@ -591,6 +662,7 @@ private fun Advanced(mode: TextMode, ascent: Int, stored: TextStyle?, actions: T
     )
     OptionalSlider(
         label = orcaString("Skew ratio"),
+        hasRevert = stored != null,
         value = style.skew?.toFloat(),
         range = SKEW_GUI_MIN..SKEW_GUI_MAX,
         text = { String.format(locale, "%.2f", it) },
@@ -607,6 +679,7 @@ private fun Advanced(mode: TextMode, ascent: Int, stored: TextStyle?, actions: T
         text = { String.format(locale, if (imperial) "%.3f in" else "%.2f mm", it) },
         revert = stored?.let { it.distance?.let { distance -> (distance * scale).toFloat() } },
         hasRevert = stored != null,
+        modified = stored == null || style.distance != stored.distance,
         enabled = !style.useSurface && !onlyPart && !mode.busy,
         onCommit = { value -> actions.moveText(value?.let { it / scale }) },
     )
@@ -620,6 +693,7 @@ private fun Advanced(mode: TextMode, ascent: Int, stored: TextStyle?, actions: T
                 text = { String.format(locale, "%.2f °", it) },
                 revert = stored?.let { Math.toDegrees(-(it.angle ?: 0.0)).toFloat() },
                 hasRevert = stored != null,
+                modified = stored == null || style.angle != stored.angle,
                 enabled = !mode.busy,
                 onCommit = { value -> actions.rotateText((value ?: 0f).toDouble()) },
             )
@@ -729,19 +803,24 @@ internal fun CommittedSlider(
 
 /** ImGui::InputTextMultiline("##Text"): the text in its own font, as the desktop input shows it. */
 @Composable
-private fun TextInput(text: String, onChange: (String) -> Unit, enabled: Boolean, font: FontFamily?) {
+private fun TextInput(text: String, onChange: (String) -> Unit, enabled: Boolean, font: FontFamily?, size: Double) {
     val colors = OrcaTheme.colors
+    val fontSize = with(LocalDensity.current) { size.toFloat().dp.toSp() }
     BasicTextField(
         value = text,
         onValueChange = onChange,
         enabled = enabled,
-        textStyle = OrcaTheme.typography.body14.copy(color = if (enabled) colors.text else colors.textDisabled, fontFamily = font ?: FontFamily.Default),
+        textStyle = OrcaTheme.typography.body14.copy(
+            color = if (enabled) colors.text else colors.textDisabled,
+            fontFamily = font ?: FontFamily.Default,
+            fontSize = fontSize,
+            lineHeight = fontSize * INPUT_LINE_HEIGHT,
+        ),
         cursorBrush = SolidColor(colors.accent),
-        minLines = 2,
-        maxLines = 4,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
+            .height(TEXT_INPUT_HEIGHT)
             .background(colors.window, OrcaTheme.shapes.control)
             .border(1.dp, colors.border, OrcaTheme.shapes.control)
             .padding(horizontal = 8.dp, vertical = 6.dp),
@@ -780,21 +859,39 @@ internal fun TextRow(
 }
 
 @Composable
-internal fun TextCheck(text: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .toggleable(value = checked, role = Role.Checkbox, enabled = enabled, onValueChange = onChange),
-    ) {
-        app.orcinus.shadow.core.designsystem.component.OrcaCheckBox(checked = checked, onCheckedChange = null, enabled = enabled)
-        Text(
-            text = text,
-            color = if (enabled) OrcaTheme.colors.onCanvasPanel else OrcaTheme.colors.textDimmed,
-            style = OrcaTheme.typography.body12,
-            modifier = Modifier.padding(start = 6.dp),
-        )
+internal fun TextCheck(
+    text: String,
+    checked: Boolean,
+    enabled: Boolean,
+    labelColor: Color = OrcaTheme.colors.onCanvasPanel,
+    /** rev_checkbox()'s revert to the stored style, while the value differs from it. */
+    revert: (() -> Unit)? = null,
+    revertDescription: String = "",
+    onChange: (Boolean) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .weight(1f)
+                .toggleable(value = checked, role = Role.Checkbox, enabled = enabled, onValueChange = onChange),
+        ) {
+            app.orcinus.shadow.core.designsystem.component.OrcaCheckBox(checked = checked, onCheckedChange = null, enabled = enabled)
+            Text(
+                text = text,
+                color = if (enabled) labelColor else OrcaTheme.colors.textDimmed,
+                style = OrcaTheme.typography.body12,
+                modifier = Modifier.padding(start = 6.dp),
+            )
+        }
+        if (revert != null) RevertButton(revertDescription, enabled = enabled, onClick = revert)
     }
+}
+
+/** revertible()'s undo icon: back to the stored style's value. */
+@Composable
+private fun RevertButton(description: String, enabled: Boolean = true, onClick: () -> Unit) {
+    OrcaIconButton(icon = DesignR.drawable.orca_undo, contentDescription = description, onClick = onClick, enabled = enabled)
 }
 
 @Composable
@@ -820,12 +917,18 @@ private fun OptionalSlider(
     revert: Float?,
     onChange: (Float?) -> Unit,
     enabled: Boolean = true,
+    /** A stored style to revert to; without one the label shows the value modified (revertible()). */
+    hasRevert: Boolean = true,
 ) {
     val shown = (value ?: 0f).coerceIn(range)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = label,
-            color = if (enabled) OrcaTheme.colors.onCanvasPanel else OrcaTheme.colors.textDimmed,
+            color = when {
+                !enabled -> OrcaTheme.colors.textDimmed
+                !hasRevert || value != revert -> OrcaTheme.colors.labelModified
+                else -> OrcaTheme.colors.onCanvasPanel
+            },
             style = OrcaTheme.typography.body12,
             modifier = Modifier.width(LabelWidth),
         )
@@ -844,7 +947,7 @@ private fun OptionalSlider(
                 .padding(start = 6.dp)
                 .width(ValueWidth),
         )
-        if (value != revert) {
+        if (hasRevert && value != revert) {
             OrcaIconButton(
                 icon = DesignR.drawable.orca_undo,
                 contentDescription = orcaString("Reset"),
@@ -856,18 +959,18 @@ private fun OptionalSlider(
 }
 
 /**
- * draw_model_type() of the text and SVG tools: Join, Cut or Modifier, the
- * volume's [type] chosen.
+ * draw_model_type() of the text and SVG tools: Join, Cut or, but in simple
+ * mode ([modifiersOffered] off), Modifier, the volume's [type] chosen.
  */
 @Composable
-internal fun EmbossOperation(type: VolumeType?, enabled: Boolean, onType: (VolumeType) -> Unit) {
+internal fun EmbossOperation(type: VolumeType?, enabled: Boolean, modifiersOffered: Boolean, onType: (VolumeType) -> Unit) {
     val colors = OrcaTheme.colors
     Text(orcaString("Operation"), color = colors.onCanvasPanel, style = OrcaTheme.typography.body13, modifier = Modifier.padding(top = 8.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        listOf(
+        listOfNotNull(
             VolumeType.PART to orcaString("Join"),
             VolumeType.NEGATIVE to orcaString("Cut", "EmbossOperation"),
-            VolumeType.MODIFIER to orcaString("Modifier"),
+            (VolumeType.MODIFIER to orcaString("Modifier")).takeIf { modifiersOffered },
         ).forEach { (item, label) ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -940,6 +1043,104 @@ private fun FontSheet(families: List<TextFontFamily>, current: TextFontFamily?, 
 private fun typefaceOf(path: String, index: Int): FontFamily? = runCatching {
     FontFamily(androidx.compose.ui.text.font.Typeface(Typeface.Builder(File(path)).setTtcIndex(index).build()))
 }.getOrNull()
+
+/**
+ * The face of a font file as the text input draws the text with it
+ * (StyleManager::create_imgui_font()): its line height in ems, (ascent -
+ * descent + line gap) / units per em, and the file's first face without the
+ * system's fallback fonts, which tells the glyphs the font has
+ * (create_range_text()).
+ */
+private class InputFont(val lineHeightPerEm: Double, private val glyphs: Paint) {
+    /** create_range_text()'s exist_unknown: a character but a new line, a return or a tab the font has no glyph for. */
+    fun lacksGlyph(text: String): Boolean {
+        var offset = 0
+        while (offset < text.length) {
+            val code = text.codePointAt(offset)
+            offset += Character.charCount(code)
+            if (code == '\n'.code || code == '\r'.code || code == '\t'.code) continue
+            if (!glyphs.hasGlyph(String(Character.toChars(code)))) return true
+        }
+        return false
+    }
+}
+
+/** The face [index] of the font file at [path] for the text input; null when it does not load. */
+private fun inputFontOf(path: String, index: Int): InputFont? = runCatching {
+    val metrics = Paint().apply {
+        typeface = faceWithoutFallback(path, index)
+        textSize = PROBE_TEXT_SIZE
+    }.fontMetrics
+    InputFont((metrics.descent - metrics.ascent + metrics.leading).toDouble() / PROBE_TEXT_SIZE, Paint().apply { typeface = faceWithoutFallback(path, 0) })
+}.getOrNull()
+
+/** A typeface of the face alone, which falls back to no other font. */
+private fun faceWithoutFallback(path: String, index: Int): Typeface {
+    val font = android.graphics.fonts.Font.Builder(File(path)).setTtcIndex(index).build()
+    return Typeface.CustomFallbackBuilder(android.graphics.fonts.FontFamily.Builder(font).build()).build()
+}
+
+/**
+ * draw_text_input()'s warning, its lines under each other: the font that
+ * cannot write the text ([known] faces only), the empty text, the glyphs the
+ * font lacks, what the input does not show of the style, and the input font
+ * of [size] beyond its limits.
+ */
+@Composable
+private fun inputWarning(mode: TextMode, known: Boolean, font: InputFont?, size: Double?): String? {
+    val style = mode.style
+    val warnings = ArrayList<String>()
+    if (known && font == null) {
+        warnings += orcaString("The text cannot be written using the selected font. Please try choosing a different font.")
+    } else {
+        if (mode.blank) warnings += orcaString("Embossed text cannot contain only white spaces.")
+        if (font?.lacksGlyph(mode.text) == true) warnings += orcaString("Text contains character glyph (represented by '?') unknown by font.")
+        if (style.skew != null) warnings += orcaString("Text input doesn't show font skew.")
+        if (style.boldness != null) warnings += orcaString("Text input doesn't show font boldness.")
+        if (style.lineGap != null) warnings += orcaString("Text input doesn't show gap between lines.")
+        if (size != null && size > MAX_INPUT_FONT_SIZE) warnings += orcaString("Too tall, diminished font height inside text input.")
+        if (size != null && size < MIN_INPUT_FONT_SIZE) warnings += orcaString("Too small, enlarged font height inside text input.")
+        // m_text_lines, which the text holds while it is transformed per glyph.
+        val multiline = style.perGlyph && mode.text.contains('\n')
+        if (multiline && (style.horizontalAlign == TextHorizontalAlign.CENTER || style.horizontalAlign == TextHorizontalAlign.RIGHT)) {
+            warnings += orcaString("Text doesn't show current horizontal alignment.")
+        }
+    }
+    return warnings.takeIf { it.isNotEmpty() }?.joinToString("\n")
+}
+
+/**
+ * StyleManager::is_font_changed(): another face name than the stored style's,
+ * or italic or bold where it is not, or the other way round.
+ */
+private fun fontChanged(style: TextStyle, stored: TextStyle, families: List<TextFontFamily>): Boolean {
+    fun faceOf(of: TextStyle) = families.flatMap(TextFontFamily::faces).firstOrNull { it.path == of.fontPath && it.index == (of.collectionNumber ?: 0) }
+    fun familyOf(of: TextStyle) = families.firstOrNull { family -> family.faces.any { it.path == of.fontPath } }?.name ?: of.faceName
+    if (familyOf(style) != familyOf(stored)) return true
+    val face = faceOf(style)
+    val storedFace = faceOf(stored)
+    if ((style.skew != null || face?.italic == true) != (stored.skew != null || storedFace?.italic == true)) return true
+    return (style.boldness != null || (face?.weight ?: 400) > 400) != (stored.boldness != null || (storedFace?.weight ?: 400) > 400)
+}
+
+/** StyleManager::min_imgui_font_size and max_imgui_font_size, the input's font limits in desktop pixels. */
+private const val MIN_INPUT_FONT_SIZE = 18.0
+private const val MAX_INPUT_FONT_SIZE = 60.0
+
+/** get_imgui_font_size(): a point, 1/72 of an inch, in millimetres. */
+private const val POINT_MM = 0.3528
+
+/** The text size the font's metrics are read at. */
+private const val PROBE_TEXT_SIZE = 1000f
+
+/** The input's lines, apart by the font's own height. */
+private const val INPUT_LINE_HEIGHT = 1.2f
+
+/** create_gui_configuration(): the input holds three lines of the smallest input font, and scrolls. */
+private val TEXT_INPUT_HEIGHT = 72.dp
+
+/** is_approx()'s EPSILON, which the reverts of floats compare with. */
+private const val REVERT_EPSILON = 1e-4
 
 /** GLGizmoEmboss.cpp's limits: size_in_mm, emboss depth, char and line gaps, and the sliders of boldness and skew. */
 private const val SIZE_MIN = 0.1

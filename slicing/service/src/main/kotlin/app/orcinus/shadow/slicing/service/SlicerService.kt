@@ -65,6 +65,7 @@ import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.core.model.VolumeManipulation
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.clippingPlaneOf
+import app.orcinus.shadow.core.model.paintRaysOf
 import app.orcinus.shadow.core.model.cutConnectors
 import app.orcinus.shadow.core.model.numbers
 import app.orcinus.shadow.slicing.api.AppConfigStore
@@ -926,6 +927,7 @@ abstract class SlicerService<E> : Service()
         override fun paintStroke(
             origin: DoubleArray,
             direction: DoubleArray,
+            path: DoubleArray,
             state: Int,
             radius: Double,
             tool: String,
@@ -941,6 +943,7 @@ abstract class SlicerService<E> : Service()
                 PaintStroke(
                     origin = Vector3(origin[0], origin[1], origin[2]),
                     direction = Vector3(direction[0], direction[1], direction[2]),
+                    path = paintRaysOf(path),
                     state = state,
                     radius = radius,
                     tool = PaintTool.valueOf(tool),

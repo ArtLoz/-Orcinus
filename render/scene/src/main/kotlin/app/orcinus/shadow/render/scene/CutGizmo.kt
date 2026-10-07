@@ -266,12 +266,25 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
     }
 
     /**
-     * Where [ray] meets the plane's square (its_make_frustum_dowel with four
-     * sectors: corners at 45 degrees), or the rectangle of the dovetail
-     * plane; null past its edges.
+     * Where [ray] meets the plane once it meets the plane's mesh, as the
+     * plane's raycaster finds it: the square (its_make_frustum_dowel with four
+     * sectors: corners at 45 degrees), or the dovetail's plane with every one
+     * of its grooves ([groovePlane], its_make_groove_plane()'s triangles in the
+     * plane's coordinates), its middle rectangle while that is not known yet;
+     * null past its edges.
      */
-    fun planeHit(ray: Line3, dovetail: Boolean = false): Vec3? {
+    fun planeHit(ray: Line3, dovetail: Boolean = false, groovePlane: FloatArray? = null): Vec3? {
         val point = planePoint(ray) ?: return null
+        if (dovetail && groovePlane != null) {
+            val toPlane = plane.inverse()
+            val origin = toPlane.transformPoint(ray.a)
+            val direction = toPlane.transformPoint(ray.b) - origin
+            val corner = { index: Int -> Vec3(groovePlane[index * 3].toDouble(), groovePlane[index * 3 + 1].toDouble(), groovePlane[index * 3 + 2].toDouble()) }
+            val met = (0 until groovePlane.size / 9).any { triangle ->
+                rayTriangle(origin, direction, corner(triangle * 3), corner(triangle * 3 + 1), corner(triangle * 3 + 2)) != null
+            }
+            return point.takeIf { met }
+        }
         val local = plane.inverse().transformPoint(point)
         val halfX = if (dovetail) 0.5 * planeRadius else planeRadius / sqrt(2.0)
         val halfY = if (dovetail) 0.5 * 1.5 * planeRadius else planeRadius / sqrt(2.0)
@@ -321,7 +334,7 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
      * is_looking_forward(), and [hovered] the connector a finger holds. The
      * pieces [parts] stand in the object's place (PartSelection::render()),
      * and [line] is the cut line a finger draws (render_cut_line()), which
-     * hides the connectors.
+     * hides the connectors and the plane.
      */
     fun frame(
         dragged: CutGrabber?,
@@ -490,7 +503,8 @@ internal class CutGizmo(val plane: Affine3, radius: Double, private val pixel: D
             lines = lines,
             grabbers = grabbers,
             overlay = listOfNotNull(contour?.let { GizmoFace(it, CONTOUR_COLOR) }),
-            sceneFaces = listOf(GizmoFace(dovetail?.planeTriangles ?: planeTriangles(), planeColor)),
+            // render_cut_plane(): not while a cut line is drawn (cut_line_processing()).
+            sceneFaces = if (line != null) emptyList() else listOf(GizmoFace(dovetail?.planeTriangles ?: planeTriangles(), planeColor)),
             sceneFacesWorld = plane,
             sceneMeshes = sceneMeshes,
             emission = 0.2f,

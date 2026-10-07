@@ -13,6 +13,7 @@ import app.orcinus.shadow.core.model.PlacedModel
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateProblemKind
+import app.orcinus.shadow.core.model.PlateSnapshot
 import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SlicingProfileSelection
@@ -163,6 +164,28 @@ class MeasureUseCase(
         if (opened == null) return
         opened = null
         measurer.endMeasure()
+    }
+
+    /** The top of the undo stack when the tool opened, null for an empty one; [entered] whether it is open. */
+    private var enteredTop: PlateSnapshot? = null
+    private var entered = false
+
+    /** GLGizmosManager::activate_gizmo() turning the tool on: "Entering Measure gizmo" or "Entering Assembly gizmo". */
+    fun enter() {
+        enteredTop = repository.state.value.history.undo.lastOrNull()
+        entered = true
+    }
+
+    /**
+     * activate_gizmo() turning it off: the leaving snapshot, after which the
+     * steps the tool took in a row are one (reduce_noisy_snapshots()).
+     */
+    fun leave() {
+        if (!entered) return
+        entered = false
+        val top = enteredTop
+        enteredTop = null
+        repository.update { it.copy(history = it.history.reducedNoisySnapshots(top)) }
     }
 }
 

@@ -104,7 +104,7 @@ internal class SvgActions(
  * finger lets go.
  */
 @Composable
-internal fun SvgPanel(mode: SvgMode, actions: SvgActions, imperial: Boolean, eye: () -> CameraEye?) {
+internal fun SvgPanel(mode: SvgMode, actions: SvgActions, imperial: Boolean, eye: () -> CameraEye?, modifiersOffered: Boolean = true) {
     val colors = OrcaTheme.colors
     val locale = textLocale()
     val described = mode.described
@@ -231,7 +231,7 @@ internal fun SvgPanel(mode: SvgMode, actions: SvgActions, imperial: Boolean, eye
             modifier = Modifier.padding(top = 8.dp),
         )
         if (!mode.onlyPart) {
-            EmbossOperation(described?.type, enabled = enabled, onType = actions.setType)
+            EmbossOperation(described?.type, enabled = enabled, modifiersOffered = modifiersOffered, onType = actions.setType)
         }
     }
     if (warningsShown) {

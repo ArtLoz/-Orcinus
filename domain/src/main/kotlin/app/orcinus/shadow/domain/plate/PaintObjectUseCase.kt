@@ -6,6 +6,9 @@ import app.orcinus.shadow.core.model.PaintPlacement
 import app.orcinus.shadow.core.model.PaintStroke
 import app.orcinus.shadow.core.model.PaintedMesh
 import app.orcinus.shadow.core.model.PaintingOutcome
+import app.orcinus.shadow.core.model.PlateObject
+import app.orcinus.shadow.core.model.PlateState
+import app.orcinus.shadow.core.model.PresetKind
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.VolumeType
 import app.orcinus.shadow.core.model.mesh
@@ -195,6 +198,20 @@ class PaintObjectUseCase(
             state.copy(objects = state.objects.map { if (it.mesh == mesh) painted else it })
         }
     }
+}
+
+/**
+ * GLGizmoFdmSupports::get_selection_support_threshold_angle(): the support
+ * threshold angle of [target] while its supports are on and automatic
+ * (is_auto(): normal(auto) or tree(auto)), each setting the object's own over
+ * the process preset's; 0 without automatic supports.
+ */
+fun PlateState.supportThresholdAngle(target: PlateObject): Int {
+    fun value(key: String) = target.settings.values[key] ?: presetValue(PresetKind.PRINT, key)
+    val enableSupport = value("enable_support") == "1"
+    val autoSupport = value("support_type").let { it == "normal(auto)" || it == "tree(auto)" }
+    val angle = value("support_threshold_angle")?.toIntOrNull() ?: 0
+    return if (enableSupport && autoSupport) angle else 0
 }
 
 /** The volume's or object's "extruder" setting; 0 takes it off. */

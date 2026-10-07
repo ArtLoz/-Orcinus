@@ -8,6 +8,7 @@ import app.orcinus.shadow.core.model.OrcaText
 import app.orcinus.shadow.core.model.PlateInstanceId
 import app.orcinus.shadow.core.model.PlateProblem
 import app.orcinus.shadow.core.model.PlateProblemKind
+import app.orcinus.shadow.core.model.PlateState
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.SettingsDialog
 import app.orcinus.shadow.core.model.SimplifyConfig
@@ -32,8 +33,8 @@ import kotlinx.coroutines.launch
 class OpenSimplifyUseCase(private val repository: PlateRepository) {
     /** The object of [copy], selected as the canvas selects a copy, or whole ([wholeObject]) as the object list does. */
     fun ofObject(copy: PlateInstanceId, wholeObject: Boolean) = repository.update { state ->
-        val target = state.objects.withMesh(copy.mesh)
-        if (target == null || state.simplifyTarget != null) return@update state
+        val target = state.objects.withMesh(copy.mesh) ?: return@update state
+        if (!state.othersClosed()) return@update state.copy(plateNotices = state.plateNotices + TOOLS_OPEN)
         if (target.parts.isNotEmpty() || (wholeObject && target.instances.size > 1)) {
             return@update state.copy(plateNotices = state.plateNotices + SINGLE_PART_ONLY)
         }
@@ -53,7 +54,8 @@ class OpenSimplifyUseCase(private val repository: PlateRepository) {
      */
     fun ofVolume(id: ObjectPartId, instance: Int = 0) = repository.update { state ->
         val target = state.objects.withMesh(id.mesh)
-        if (target?.volumeAt(id.index) == null || state.simplifyTarget != null) return@update state
+        if (target?.volumeAt(id.index) == null) return@update state
+        if (!state.othersClosed()) return@update state.copy(plateNotices = state.plateNotices + TOOLS_OPEN)
         state.copy(
             simplifyTarget = id,
             selectedInstances = setOf(PlateInstanceId(id.mesh, instance.takeIf { it in target.instances.indices } ?: 0)),
@@ -69,6 +71,13 @@ class OpenSimplifyUseCase(private val repository: PlateRepository) {
      * becomes the object (Selection::add_object()) and the gizmo opens on it.
      */
     fun suggested(mesh: ScenePath) = ofObject(PlateInstanceId(mesh), wholeObject = true)
+
+    /**
+     * ObjectList::simplify(): check_gizmos_closed_except(Simplify), so no tool
+     * but the gizmo itself is open; the gizmo open already closes first and
+     * opens again on the selection.
+     */
+    private fun PlateState.othersClosed(): Boolean = !gizmoOpen || simplifyTarget != null
 
     /** GLGizmoSimplify::close(): Cancel, or the volume is gone. */
     fun close() = repository.update { state -> if (state.simplifyTarget == null) state else state.copy(simplifyTarget = null) }
