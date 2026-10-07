@@ -46,8 +46,11 @@ val OrcaSidebarToggleSpace = SidebarTogglePadding * 2 + 48.dp
  * - Wide: the tab bar spans the top; below it the sidebar is docked beside the
  *   content and collapses, as on desktop.
  * - Compact: the sidebar is a modal navigation drawer over the whole screen,
- *   tab bar included. It opens with the collapse button or a swipe from the
- *   left and closes with a swipe, a tap on the scrim, or Back.
+ *   tab bar included. It opens with the collapse button and closes with a
+ *   swipe, a tap on the scrim, or Back. It does not open with a swipe: the
+ *   drawer takes a sideways drag anywhere on the content, so scrolling a page
+ *   that leaves the drag to it (the printer's web page) opened it, and the
+ *   left edge belongs to the system's Back gesture.
  *
  * OrcaSlicer's collapse button sits in the top-left corner of the content in
  * both layouts.
@@ -124,6 +127,7 @@ fun OrcaSidebarLayout(
                 },
                 modifier = modifier,
                 drawerState = drawerState,
+                gesturesEnabled = drawerState.isOpen,
             ) {
                 Column(Modifier.fillMaxSize()) {
                     topBar()
