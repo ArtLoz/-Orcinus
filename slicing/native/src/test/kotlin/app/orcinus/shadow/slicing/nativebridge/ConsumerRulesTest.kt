@@ -18,14 +18,15 @@ class ConsumerRulesTest {
     @Test
     fun `every class the bridge constructs is kept`() {
         val constructed = BRIDGE_CLASS.findAll(bridge).map { it.groupValues[1] }.toSortedSet()
-        val kept = KEPT_CLASS.findAll(rules).map { it.groupValues[1] }.toSet()
+        // A rule names one class or, with *, every class its name pattern matches.
+        val kept = KEPT_CLASS.findAll(rules).map { rule -> Regex(rule.groupValues[1].replace("*", """\w*""")) }.toList()
         assertTrue(constructed.isNotEmpty(), "The bridge constructs no class")
-        val missing = constructed - kept
+        val missing = constructed.filter { name -> kept.none { it.matches(name) } }
         assertTrue(missing.isEmpty(), "consumer-rules.pro keeps none of $missing")
     }
 
     private companion object {
         val BRIDGE_CLASS = Regex("""app/orcinus/shadow/slicing/nativebridge/(Native\w+)""")
-        val KEPT_CLASS = Regex("""-keep\s+(?:class|interface)\s+app\.orcinus\.shadow\.slicing\.nativebridge\.(Native\w+)""")
+        val KEPT_CLASS = Regex("""-keep\s+(?:class|interface)\s+app\.orcinus\.shadow\.slicing\.nativebridge\.(Native[\w*]*)""")
     }
 }
