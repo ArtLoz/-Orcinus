@@ -40,6 +40,19 @@ val orcaCommit: Provider<String> = providers
 val publicSourceUrl: Provider<String> = providers.gradleProperty("orcinus.sourceUrl").orElse("")
 
 /**
+ * The app's version, from gradle.properties or -Porcinus.versionName and
+ * -Porcinus.versionCode: the name users see, and the code Google Play orders
+ * the uploads by, which must grow with every bundle uploaded to Play.
+ */
+val appVersionName: Provider<String> = providers.gradleProperty("orcinus.versionName")
+val appVersionCode: Provider<Int> = providers.gradleProperty("orcinus.versionCode").map { it.toInt() }
+
+// The APKs and bundles carry the version: orcinus-0.1.0-2-release.aab.
+base {
+    archivesName = appVersionName.zip(appVersionCode) { name, code -> "orcinus-$name-$code" }
+}
+
+/**
  * Release signing: keystore.properties in the repository root (never committed)
  * or ORCINUS_* environment variables for CI. Without them the release build is
  * unsigned.
@@ -63,8 +76,8 @@ android {
         applicationId = "app.orcinus.shadow"
         minSdk = 29
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.1.0"
+        versionCode = appVersionCode.get()
+        versionName = appVersionName.get()
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -88,6 +101,10 @@ android {
     }
 
     buildTypes {
+        // The About page tells a debug build from a release of the same version.
+        debug {
+            versionNameSuffix = "-debug"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

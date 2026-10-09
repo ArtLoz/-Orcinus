@@ -225,8 +225,7 @@ cd ./-Orcinus
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/engine.ps1 -Stage deps
 
 # Приложение; Gradle собирает библиотеку ядра вместе с libslic3r
-./gradlew.bat :app:assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+./gradlew.bat :app:installDebug
 ```
 
 <details>

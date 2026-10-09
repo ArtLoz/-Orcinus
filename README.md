@@ -217,8 +217,7 @@ cd ./-Orcinus
 powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/engine.ps1 -Stage deps
 
 # The app; Gradle builds the engine library together with libslic3r
-./gradlew.bat :app:assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+./gradlew.bat :app:installDebug
 ```
 
 <details>
