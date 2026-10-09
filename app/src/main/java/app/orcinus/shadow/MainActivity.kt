@@ -31,7 +31,9 @@ import androidx.core.content.IntentCompat
 import androidx.core.splashscreen.SplashScreen
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.splashscreen.SplashScreenViewProvider
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.EngineAvailability
 import app.orcinus.shadow.core.model.ExternalDocumentReference
@@ -50,14 +52,17 @@ import app.orcinus.shadow.domain.shortcuts.ResolveShortcutUseCase
 import app.orcinus.shadow.ui.OrcinusApp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
-    // Slicing continues in the background with a progress notification; the
-    // job runs either way if the user declines.
+    // Slicing, uploads to a printer and print-service sign-ins continue in the
+    // background with a notification; the work runs either way if the user declines.
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     /** The files handed over that the workspace has not taken yet. */
@@ -92,6 +97,12 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) takeDocuments(intent)
         // A language chosen before Android 13 takes effect as the activity is built again.
         lifecycleScope.launch { container.appLanguage.changes.collect { recreate() } }
+        // An upload or a sign-in the user has just started asks, as a slice does.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                NetworkWork.running.map { it > 0 }.distinctUntilChanged().filter { it }.collect { requestNotificationPermission() }
+            }
+        }
         // The engine's own messages follow the language the activity is built in.
         container.setEngineLanguage(
             EngineLanguage(orcaLanguageOf(resources.configuration.locales[0]).catalog, getString(CoreUiR.string.calibration_cube_name)),
