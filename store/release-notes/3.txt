@@ -1,0 +1,12 @@
+<en-US>
+Large models: files of millions of triangles open, slice and turn smoothly instead of crashing or freezing the app.
+Slice preview: large prints show in full and rotate fluidly.
+Interface: visible touch feedback in the dark theme, Back closes the sidebar first, tidier notifications, menus and preview panel.
+About: rate the app on Google Play or share it.
+</en-US>
+<ru-RU>
+Большие модели: файлы на миллионы треугольников открываются, нарезаются и вращаются плавно, без вылетов и зависаний.
+Просмотр нарезки: большие печати видны целиком и вращаются плавно.
+Интерфейс: заметный отклик на нажатия в тёмной теме, «Назад» сначала закрывает боковую панель, аккуратнее уведомления, меню и панель просмотра.
+«О программе»: оценить приложение в Google Play или поделиться им.
+</ru-RU>
