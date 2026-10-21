@@ -414,18 +414,19 @@ fun OrcaNotification(
                 )
                 if (collapsed) {
                     // render_text(): the second line ends in ".." and the "More" hypertext, right
-                    // after its last word; over the end of a line too full to leave room for them.
+                    // after its text, which a line too full to leave room for them loses
+                    // whole characters of.
                     var moreWidth by remember { mutableIntStateOf(0) }
                     Row(
                         Modifier
                             .align(Alignment.BottomStart)
                             .onSizeChanged { moreWidth = it.width }
                             .offset {
-                                val end = textLines.endAt(COLLAPSED_LINES * lineHeight - lineHeight / 2) ?: Float.MAX_VALUE
-                                IntOffset(minOf(end.roundToInt(), textLines.width - moreWidth).coerceAtLeast(0), 0)
+                                val limit = (textLines.width - moreWidth).toFloat()
+                                val end = textLines.endAt(COLLAPSED_LINES * lineHeight - lineHeight / 2, limit) ?: limit
+                                IntOffset(end.roundToInt().coerceIn(0, limit.roundToInt().coerceAtLeast(0)), 0)
                             }
-                            .background(background)
-                            .padding(start = 4.dp),
+                            .background(background),
                     ) {
                         CompositionLocalProvider(LocalNotificationTextLines provides null) { OrcaNotificationText("..") }
                         Text(
@@ -481,11 +482,20 @@ private class NotificationTextLines {
     val positions = mutableStateMapOf<Any, Offset>()
     var width by mutableIntStateOf(0)
 
-    /** The right end of the line about [y] from the top of the text, or null where no text is. */
-    fun endAt(y: Float): Float? = layouts.firstNotNullOfOrNull { (key, layout) ->
+    /**
+     * Where the line about [y] from the top of the text ends, or, when it runs past
+     * [limit], where its last character that ends before [limit] does; null where no text is.
+     */
+    fun endAt(y: Float, limit: Float): Float? = layouts.firstNotNullOfOrNull { (key, layout) ->
         val position = positions[key] ?: return@firstNotNullOfOrNull null
         val inText = y - position.y
-        if (inText < 0 || inText > layout.size.height) null else position.x + layout.getLineRight(layout.getLineForVerticalPosition(inText))
+        if (inText < 0 || inText > layout.size.height) return@firstNotNullOfOrNull null
+        val line = layout.getLineForVerticalPosition(inText)
+        val right = position.x + layout.getLineRight(line)
+        if (right <= limit) return@firstNotNullOfOrNull right
+        var offset = layout.getOffsetForPosition(Offset(limit - position.x, inText))
+        while (offset > layout.getLineStart(line) && position.x + layout.getHorizontalPosition(offset, true) > limit) offset--
+        position.x + layout.getHorizontalPosition(offset, true)
     }
 
     fun remove(key: Any) {
