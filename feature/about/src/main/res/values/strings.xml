@@ -12,6 +12,10 @@
     <string name="license_notice">Orcinus is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License version 3 as published by the Free Software Foundation.\n\nThis program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the license text for more details.</string>
     <string name="license_text">GNU AGPL v3 license text</string>
     <string name="source_code">Source code</string>
+    <string name="rate_app">Rate on Google Play</string>
+    <string name="rate_app_summary">A rating and a review help other makers find the app</string>
+    <string name="share_app">Share the app</string>
+    <string name="share_app_text">Orcinus, a 3D printing slicer for Android with the OrcaSlicer engine:</string>
 
     <string name="section_credits">Credits</string>
     <string name="credits">Orcinus uses the OrcaSlicer engine. OrcaSlicer is based on Bambu Studio by Bambu Lab, Bambu Studio on PrusaSlicer by Prusa Research, and PrusaSlicer on Slic3r by Alessandro Ranellucci and the RepRap community.</string>

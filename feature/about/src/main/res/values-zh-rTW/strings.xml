@@ -10,6 +10,10 @@
     <string name="license_notice">Orcinus 是自由軟體：您可以依據自由軟體基金會（Free Software Foundation）發布的 GNU Affero General Public License 第 3 版條款，重新散布和/或修改本程式。\n\n散布本程式是希望它能有所助益，但不提供任何擔保；甚至不包含適售性或特定用途適用性的默示擔保。詳情請參閱授權條款全文。</string>
     <string name="license_text">GNU AGPL v3 授權條款全文</string>
     <string name="source_code">原始碼</string>
+    <string name="rate_app">在 Google Play 上評分</string>
+    <string name="rate_app_summary">評分和評論能幫助其他人找到這款應用程式</string>
+    <string name="share_app">分享應用程式</string>
+    <string name="share_app_text">Orcinus：適用於 Android 的 3D 列印切片軟體，採用 OrcaSlicer 引擎：</string>
     <string name="section_credits">致謝</string>
     <string name="credits">Orcinus 使用 OrcaSlicer 引擎。OrcaSlicer 以 Bambu Lab 的 Bambu Studio 為基礎，Bambu Studio 以 Prusa Research 的 PrusaSlicer 為基礎，而 PrusaSlicer 則以 Alessandro Ranellucci 與 RepRap 社群的 Slic3r 為基礎。</string>
     <string name="third_party_title">第三方元件</string>

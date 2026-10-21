@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
@@ -43,6 +44,7 @@ import app.orcinus.shadow.core.designsystem.theme.OrcinusTheme
 import app.orcinus.shadow.core.model.AppInfo
 import app.orcinus.shadow.core.model.ComponentId
 import app.orcinus.shadow.core.model.LicenseId
+import app.orcinus.shadow.core.ui.shareText
 
 /**
  * The About page, in the spirit of OrcaSlicer's About dialog. It also carries
@@ -59,6 +61,8 @@ internal fun AboutScreen(
     onBack: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val shareText = stringResource(R.string.share_app_text)
     AboutPage(title = stringResource(R.string.about_title), onBack = onBack) {
         item {
             Column(
@@ -77,6 +81,25 @@ internal fun AboutScreen(
                     style = OrcaTheme.typography.body14,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 12.dp),
+                )
+            }
+        }
+        // The app's page in Google Play, which the Play app opens where it is installed: to rate
+        // the app there, or to send the link to a friend through the app the user picks.
+        appInfo.storeUrl?.let { storeUrl ->
+            item {
+                OrcaListRow(
+                    title = stringResource(R.string.rate_app),
+                    details = stringResource(R.string.rate_app_summary),
+                    onClick = { runCatching { uriHandler.openUri(storeUrl) } },
+                    modifier = Modifier.pageContent(),
+                )
+            }
+            item {
+                OrcaListRow(
+                    title = stringResource(R.string.share_app),
+                    onClick = { runCatching { context.shareText("$shareText\n$storeUrl") } },
+                    modifier = Modifier.pageContent(),
                 )
             }
         }
@@ -259,6 +282,7 @@ private val PreviewAppInfo = AppInfo(
     orcaRelease = "2.4.2",
     sourceUrl = "https://example.org/orcinus",
     license = LicenseId("AGPL-3.0-only"),
+    storeUrl = "https://play.google.com/store/apps/details?id=app.orcinus.shadow",
 )
 
 @Preview(name = "About", widthDp = 400, heightDp = 900)

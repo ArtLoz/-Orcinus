@@ -721,6 +721,7 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         sourceUrl = BuildConfig.SOURCE_URL.ifBlank { null },
         license = LicenseId(BuildConfig.LICENSE_ID),
         orcaCommit = BuildConfig.ORCA_COMMIT.ifBlank { null },
+        storeUrl = "https://play.google.com/store/apps/details?id=${BuildConfig.APPLICATION_ID}",
     )
 
     // Generated at build time by the AboutLibraries plugin (see app/build.gradle.kts).

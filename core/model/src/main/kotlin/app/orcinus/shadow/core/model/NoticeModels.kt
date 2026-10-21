@@ -12,6 +12,8 @@ data class AppInfo(
     val license: LicenseId,
     /** The commit of OrcaSlicer that release is built from; null when unknown. */
     val orcaCommit: String? = null,
+    /** The app's page in Google Play, where it is rated and which a user shares; null for none. */
+    val storeUrl: String? = null,
 )
 
 @JvmInline

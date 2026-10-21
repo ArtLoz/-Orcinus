@@ -20,3 +20,12 @@ fun Context.shareDocument(document: ExternalDocumentReference, mimeType: String)
     }
     startActivity(Intent.createChooser(send, null))
 }
+
+/** Android's share sheet for [text], such as a link, to send through the app the user picks. */
+fun Context.shareText(text: String) {
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    startActivity(Intent.createChooser(send, null))
+}

@@ -10,6 +10,10 @@
     <string name="license_notice">Az Orcinus szabad szoftver: a Free Software Foundation által kiadott GNU Affero General Public License 3. verziójának feltételei szerint terjesztheted és/vagy módosíthatod.\n\nEzt a programot abban a reményben terjesztjük, hogy hasznos lesz, de BÁRMIFÉLE GARANCIA NÉLKÜL; még az ELADHATÓSÁGRA vagy az ADOTT CÉLRA VALÓ ALKALMASSÁGRA vonatkozó hallgatólagos garanciát is kizárva. További részletek a licenc szövegében.</string>
     <string name="license_text">A GNU AGPL v3 licenc szövege</string>
     <string name="source_code">Forráskód</string>
+    <string name="rate_app">Értékelés a Google Playen</string>
+    <string name="rate_app_summary">Egy értékelés és vélemény segít másoknak megtalálni az alkalmazást</string>
+    <string name="share_app">Alkalmazás megosztása</string>
+    <string name="share_app_text">Orcinus, 3D nyomtatási szeletelő Androidra az OrcaSlicer motorral:</string>
     <string name="section_credits">Köszönetnyilvánítás</string>
     <string name="credits">Az Orcinus az OrcaSlicer motorját használja. Az OrcaSlicer a Bambu Lab Bambu Studio programján alapul, a Bambu Studio a Prusa Research PrusaSlicer programján, a PrusaSlicer pedig Alessandro Ranellucci és a RepRap közösség Slic3r programján.</string>
     <string name="third_party_title">Harmadik féltől származó összetevők</string>
