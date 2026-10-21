@@ -677,7 +677,7 @@ internal class PlateRenderer(private val assets: AssetManager) : GLSurfaceView.R
             gpuWireframes.keys.filter { it !in wired }.forEach { gpuWireframes.remove(it)?.release() }
             wired.forEach { (key, sceneObject) ->
                 gpuWireframes.getOrPut(key) {
-                    GlVertexArray(GlVertexArray.floatBuffer(triangleEdges(sceneObject.mesh)), listOf(GlProgram.POSITION to 3), GLES30.GL_LINES)
+                    GlVertexArray(triangleEdges(sceneObject.mesh), listOf(GlProgram.POSITION to 3), GLES30.GL_LINES)
                 }
             }
             objects = newObjects
