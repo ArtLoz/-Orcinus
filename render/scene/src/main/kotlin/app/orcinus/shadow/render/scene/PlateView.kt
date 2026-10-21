@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.PointerInputChange
@@ -789,6 +790,7 @@ fun PlateView(
                         detectPlateGestures(controller, navigatorInput, touchSlop, doubleTapTimeout, longPressTimeout, edgePx) { press.value() }
                     }
                     .pointerInput(surface) { observeMouse(controller, touchSlop) { toolWheel.value(it) } }
+                    .pointerInput(surface) { observeHold(controller) }
                     .pointerHoverIcon(if (panning) PointerIcon(android.view.PointerIcon.TYPE_GRABBING) else PointerIcon.Default),
             )
             SelectionRectangle(controller, colors.accent)
@@ -1318,6 +1320,16 @@ private suspend fun AwaitPointerEventScope.mouseGesture(
             clicks.onObject = now
         }
         clicks.empty = 0L
+    }
+}
+
+/** Whether a finger or a mouse button holds the view, whatever the gesture it makes. */
+private suspend fun PointerInputScope.observeHold(controller: PlateViewController) {
+    awaitPointerEventScope {
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            controller.setHeld(event.changes.any(PointerInputChange::pressed))
+        }
     }
 }
 
@@ -1899,10 +1911,21 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         invalidate()
     }
 
+    /** A finger or a mouse button down on the view, which [layer] is told of. */
+    private var held = false
+
+    fun setHeld(held: Boolean) {
+        if (held == this.held) return
+        this.held = held
+        layer?.setHeld(held)
+    }
+
     fun setLayer(layer: PlateLayer?) {
         if (layer === this.layer) return
         this.layer?.setOnChanged(null)
+        this.layer?.setHeld(false)
         this.layer = layer
+        layer?.setHeld(held)
         layerBox = layer?.bounds?.let { Box3(Vec3(it.min.x, it.min.y, it.min.z), Vec3(it.max.x, it.max.y, it.max.z)) }
         layer?.setOnChanged(surface::requestRender)
         renderer.setLayer(layer)

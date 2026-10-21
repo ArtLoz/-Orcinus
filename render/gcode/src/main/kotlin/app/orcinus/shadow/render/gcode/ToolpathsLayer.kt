@@ -69,6 +69,20 @@ class ToolpathsLayer private constructor(
     private val settler = Handler(Looper.getMainLooper())
     private val settle = Runnable { synchronized(requests) { onChanged }?.invoke() }
 
+    /** A finger holds the view, which keeps drawing in part until it lets go. */
+    @Volatile
+    private var held = false
+
+    /** The last frame drew the print in part. */
+    @Volatile
+    private var drawnInPart = false
+
+    override fun setHeld(held: Boolean) {
+        this.held = held
+        settler.removeCallbacks(settle)
+        if (!held && drawnInPart) settler.post(settle)
+    }
+
     /** What the viewer shows, once it has drawn. */
     val view: StateFlow<ToolpathsView?> = mutableView.asStateFlow()
 
@@ -159,13 +173,17 @@ class ToolpathsLayer private constructor(
         // While the camera moves, or the layers or the moves shown do, a print of
         // millions of segments draws one in so many, MOVING_SEGMENTS at most,
         // which a phone's GPU turns smoothly, where it draws the whole print a
-        // frame a second; the whole print is drawn once the view keeps still.
-        val moving = rangesMoved || !view.contentEquals(drawnView) || !projection.contentEquals(drawnProjection)
+        // frame a second.
+        val moving = held || rangesMoved || !view.contentEquals(drawnView) || !projection.contentEquals(drawnProjection)
         drawnView = view.copyOf()
         drawnProjection = projection.copyOf()
         NativeToolpaths.setSegmentBudget(viewer, if (moving) MOVING_SEGMENTS else 0)
         NativeToolpaths.render(viewer, view, projection)
-        if (moving) {
+        drawnInPart = moving
+        // While a finger holds the view the whole print waits for it to let go;
+        // a change without one, as of the layer slider or the mouse wheel, for
+        // the change to stop.
+        if (moving && !held) {
             settler.removeCallbacks(settle)
             settler.postDelayed(settle, SETTLE_MILLIS)
         }

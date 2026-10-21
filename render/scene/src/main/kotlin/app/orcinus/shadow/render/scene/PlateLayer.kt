@@ -26,6 +26,13 @@ interface PlateLayer {
 
     /** [listener] asks the view to draw again after the layer changed; it may be called from any thread. */
     fun setOnChanged(listener: (() -> Unit)?) {}
+
+    /**
+     * A finger or a mouse button holds the view ([held]), or no longer does:
+     * a layer that draws in part while the view moves draws whole once it is
+     * let go. Called on the main thread.
+     */
+    fun setHeld(held: Boolean) {}
 }
 
 /** An axis-aligned box in world coordinates, in millimetres. */
