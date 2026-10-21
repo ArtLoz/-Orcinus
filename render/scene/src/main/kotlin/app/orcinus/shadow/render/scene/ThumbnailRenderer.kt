@@ -468,12 +468,12 @@ class ThumbnailRenderer(context: Context) {
             return Box3(area.min - epsilon, Vec3(area.max.x, area.max.y, geometry.printableHeight) + epsilon)
         }
 
-        /** GLVolume::transformed_convex_hull_bounding_box(): the bounds of the volume's vertices in the world. */
+        /** GLVolume::transformed_convex_hull_bounding_box(): the bounds of the volume's convex hull in the world. */
         fun hullBox(volume: SceneObject): Box3 {
             val world = volume.world
             val min = DoubleArray(3) { Double.MAX_VALUE }
             val max = DoubleArray(3) { -Double.MAX_VALUE }
-            volume.mesh.forEachCorner { _, x, y, z ->
+            volume.mesh.forEachOuterPoint { x, y, z ->
                 for (row in 0 until 3) {
                     val value = world[row, 0] * x + world[row, 1] * y + world[row, 2] * z + world[row, 3]
                     min[row] = minOf(min[row], value)

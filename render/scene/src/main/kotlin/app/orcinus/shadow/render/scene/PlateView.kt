@@ -469,8 +469,8 @@ fun PlateView(
         LaunchedEffect(layer) { controller.setLayer(layer) }
 
         val color = plate?.filamentColor ?: DEFAULT_FILAMENT_COLOR
-        val meshes = remember { MeshCache() }
-        val shellMeshes = remember { MeshCache() }
+        val meshes = remember { MeshCache(hulls = true) }
+        val shellMeshes = remember { MeshCache(hulls = true) }
         // Marker::init(): the hotend of the printer, read once for the plate.
         val hotendPath = plate?.hotendModel
         val hotend by produceState<MeshData?>(null, hotendPath) {
@@ -2916,7 +2916,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         groupSphereCache?.takeIf { it.first == key }?.let { return it.second }
         val points = ArrayList<Vec3>()
         for (volume in volumes) {
-            volume.mesh.forEachCorner { _, x, y, z -> points += volume.world.transformPoint(Vec3(x.toDouble(), y.toDouble(), z.toDouble())) }
+            volume.mesh.forEachOuterPoint { x, y, z -> points += volume.world.transformPoint(Vec3(x.toDouble(), y.toDouble(), z.toDouble())) }
         }
         val sphere = MinimalSphere.of(points)
         groupSphereCache = key to sphere

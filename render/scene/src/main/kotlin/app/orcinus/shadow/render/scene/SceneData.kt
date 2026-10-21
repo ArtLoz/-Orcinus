@@ -195,7 +195,7 @@ internal class SceneObject(
         val row = world.linearRow(2)
         val offset = world.translation().z
         var lowest = Double.MAX_VALUE
-        mesh.forEachCorner { _, x, y, z ->
+        mesh.forEachOuterPoint { x, y, z ->
             val height = row.x * x + row.y * y + row.z * z + offset
             if (height < lowest) lowest = height
         }
@@ -317,10 +317,10 @@ internal class SceneObject(
         return world.transformPoint(origin + direction * nearest) to normal
     }
 
-    /** The mesh's points in world coordinates, which CameraUtils::create_hull2d() projects. */
+    /** The points of the mesh's convex hull in world coordinates, which CameraUtils::create_hull2d() projects. */
     fun worldPoints(): List<Vec3> {
-        val points = ArrayList<Vec3>(mesh.cornerCount)
-        mesh.forEachCorner { _, x, y, z -> points += world.transformPoint(Vec3(x.toDouble(), y.toDouble(), z.toDouble())) }
+        val points = ArrayList<Vec3>()
+        mesh.forEachOuterPoint { x, y, z -> points += world.transformPoint(Vec3(x.toDouble(), y.toDouble(), z.toDouble())) }
         return points
     }
 
@@ -431,8 +431,12 @@ internal object VolumeColors {
     }
 }
 
-/** Meshes already read, by file: moving an object changes its placement, not its mesh. */
-internal class MeshCache {
+/**
+ * Meshes already read, by file: moving an object changes its placement, not
+ * its mesh. With [hulls], large meshes come with their convex hulls, which the
+ * plate view measures them with.
+ */
+internal class MeshCache(private val hulls: Boolean = false) {
     private val meshes = ConcurrentHashMap<String, MeshData>()
 
     /** The realistic view's smooth normals; another value reads every mesh again. */
@@ -443,7 +447,7 @@ internal class MeshCache {
             field = value
         }
 
-    operator fun get(path: String): MeshData = meshes.getOrPut(path) { MeshFiles.read(File(path), smoothNormals) }
+    operator fun get(path: String): MeshData = meshes.getOrPut(path) { MeshFiles.read(File(path), smoothNormals, hulls) }
 
     /** Forgets the meshes of objects no longer in the scene. */
     fun retain(paths: Set<String>) {

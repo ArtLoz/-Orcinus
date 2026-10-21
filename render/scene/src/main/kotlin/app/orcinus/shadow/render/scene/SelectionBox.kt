@@ -16,9 +16,10 @@ import kotlin.math.abs
 internal class SelectionBracket(val box: Box3, val transform: Affine3, val autoDrop: Boolean, val yellow: Boolean)
 
 /**
- * The extents of meshes along the axes of a transformation, from every point
- * of the mesh once for each linear part (TriangleMesh::transformed_bounding_box()
- * of the convex hull, whose points reach as far): a move only shifts them.
+ * The extents of meshes along the axes of a transformation, from the points
+ * of the mesh's convex hull once for each linear part
+ * (TriangleMesh::transformed_bounding_box() of the convex hull): a move only
+ * shifts them.
  */
 internal class MeshExtents {
     private val boxes = object : LinkedHashMap<Pair<MeshData, List<Double>>, Box3>(16, 0.75f, true) {
@@ -37,7 +38,7 @@ internal class MeshExtents {
             var maxX = -Double.MAX_VALUE
             var maxY = -Double.MAX_VALUE
             var maxZ = -Double.MAX_VALUE
-            mesh.forEachCorner { _, x, y, z ->
+            mesh.forEachOuterPoint { x, y, z ->
                 val pointX = m[0] * x + m[1] * y + m[2] * z
                 val pointY = m[3] * x + m[4] * y + m[5] * z
                 val pointZ = m[6] * x + m[7] * y + m[8] * z

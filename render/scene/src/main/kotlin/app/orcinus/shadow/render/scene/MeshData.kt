@@ -24,6 +24,12 @@ internal class MeshData(
     val cornerCount: Int,
     /** Bounds of the mesh in its own coordinates. */
     val bounds: Box3,
+    /**
+     * GLVolume::convex_hull() of a large mesh: the vertices of its convex hull,
+     * x, y, z each, which reach as far as the mesh in every direction; null
+     * for a small mesh, whose corners serve as well.
+     */
+    val hull: FloatArray? = null,
 ) {
     /**
      * The tree a large mesh's rays find its triangles with, built the first
@@ -58,6 +64,21 @@ internal inline fun forEachCorner(vertices: FloatBuffer, cornerCount: Int, actio
 internal inline fun MeshData.forEachCorner(action: (corner: Int, x: Float, y: Float, z: Float) -> Unit) = forEachCorner(vertices, cornerCount, action)
 
 internal const val CORNERS_PER_READ = 1 shl 14
+
+/**
+ * The points of the mesh as far out as it reaches: the vertices of its convex
+ * hull, as OrcaSlicer finds a volume's lowest point, boxes, bounding sphere and
+ * outline on the screen from GLVolume::convex_hull(), or every corner of a
+ * mesh without one.
+ */
+internal inline fun MeshData.forEachOuterPoint(action: (x: Float, y: Float, z: Float) -> Unit) {
+    val hull = hull
+    if (hull == null) {
+        forEachCorner { _, x, y, z -> action(x, y, z) }
+    } else {
+        for (point in 0 until hull.size / 3) action(hull[point * 3], hull[point * 3 + 1], hull[point * 3 + 2])
+    }
+}
 
 /** The three edges of every triangle of [mesh] as GL_LINES segments: x, y, z per end. */
 internal fun triangleEdges(mesh: MeshData): FloatBuffer {
@@ -120,14 +141,15 @@ internal object MeshFiles {
     /**
      * Reads a mesh file written by the engine (see mesh_file_magic in
      * orca_engine_adapter.hpp); with [smooth], with the realistic view's smooth
-     * normals rather than the faces' own.
+     * normals rather than the faces' own; with [hull], with the convex hull of
+     * a large mesh, which takes qhull a second or two for millions of vertices.
      */
-    fun read(file: File, smooth: Boolean = false): MeshData = RandomAccessFile(file, "r").use { access ->
+    fun read(file: File, smooth: Boolean = false, hull: Boolean = false): MeshData = RandomAccessFile(file, "r").use { access ->
         val buffer = access.channel.map(FileChannel.MapMode.READ_ONLY, 0, access.length()).order(ByteOrder.LITTLE_ENDIAN)
-        read(buffer, smooth)
+        read(buffer, smooth, hull)
     }
 
-    fun read(buffer: ByteBuffer, smooth: Boolean = false): MeshData {
+    fun read(buffer: ByteBuffer, smooth: Boolean = false, hull: Boolean = false): MeshData {
         val data = buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN)
         if (data.remaining() < HEADER_BYTES) throw IOException("Mesh file is truncated")
         val magic = ByteArray(4).also { data.get(it) }
@@ -144,7 +166,9 @@ internal object MeshFiles {
         val positions = FloatArray(vertexCount * 3).also { data.slice().order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(it) }
         data.position(HEADER_BYTES + 12 * vertexCount)
         val indices = data.slice().order(ByteOrder.LITTLE_ENDIAN).asIntBuffer()
-        return build(positions, indices, triangleCount, smooth)
+        // ModelVolume::calculate_convex_hull(): its_convex_hull() of the vertices.
+        val outline = if (hull && triangleCount >= MeshTree.MIN_TRIANGLES) NativeMeshes.convexHull(positions).takeIf { it.isNotEmpty() } else null
+        return build(positions, indices, triangleCount, smooth, outline)
     }
 
     /** A mesh built in code, as indexed_triangle_set: x, y, z per vertex and three vertex indices per triangle. */
@@ -176,7 +200,7 @@ internal object MeshFiles {
      * time: Android reads and writes each number of a direct buffer with a
      * native call, and a run of them with one.
      */
-    private fun build(positions: FloatArray, indices: IntBuffer, triangleCount: Int, smooth: Boolean): MeshData {
+    private fun build(positions: FloatArray, indices: IntBuffer, triangleCount: Int, smooth: Boolean, hull: FloatArray? = null): MeshData {
         val vertexCount = positions.size / 3
         val run = IntArray(minOf(triangleCount, TRIANGLES_PER_READ) * 3)
         forEachTriangleRun(indices, triangleCount, run) { _, count ->
@@ -252,7 +276,7 @@ internal object MeshFiles {
         } else {
             Box3(Vec3(minX.toDouble(), minY.toDouble(), minZ.toDouble()), Vec3(maxX.toDouble(), maxY.toDouble(), maxZ.toDouble()))
         }
-        return MeshData(vertices, cornerCount, bounds)
+        return MeshData(vertices, cornerCount, bounds, hull)
     }
 
     /** The vertex indices of [triangleCount] triangles, [run] (three a triangle) at a time from the first. */
