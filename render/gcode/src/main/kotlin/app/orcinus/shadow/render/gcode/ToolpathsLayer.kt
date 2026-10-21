@@ -22,7 +22,10 @@ import kotlinx.coroutines.withContext
  * and sliders change GCodeViewer: the requests are kept here and applied to
  * the viewer on the GL thread before it draws, since libvgcode uploads
  * textures when they change, and [view] reports the result. Kept here, they
- * also survive a new GL context, which gets a new viewer.
+ * also survive a new GL context, which gets a new viewer. The requests have a
+ * lock of their own, apart from the viewer's: loading a large G-code or
+ * changing what it shows takes the GL thread seconds, which the main thread
+ * asking for the next change must not wait for.
  */
 class ToolpathsLayer private constructor(
     private val path: ScenePath,
@@ -34,6 +37,9 @@ class ToolpathsLayer private constructor(
     private val memory: ToolpathsMemory,
 ) : PlateLayer {
     private var viewer = 0L
+
+    /** Guards what is requested, from onChanged to dirty; the viewer and what it has applied are the GL thread's. */
+    private val requests = Any()
     private var onChanged: (() -> Unit)? = null
 
     // Requested, and what the current viewer has; the viewer's settings start as the G-code before left them.
@@ -59,7 +65,7 @@ class ToolpathsLayer private constructor(
     val view: StateFlow<ToolpathsView?> = mutableView.asStateFlow()
 
     override fun setOnChanged(listener: (() -> Unit)?) {
-        synchronized(this) { onChanged = listener }
+        synchronized(requests) { onChanged = listener }
     }
 
     /**
@@ -100,7 +106,7 @@ class ToolpathsLayer private constructor(
     fun setOptionVisible(option: ToolpathsOption, visible: Boolean) = request { optionVisibility[option] = visible }
 
     private fun request(change: () -> Unit) {
-        val listener = synchronized(this) {
+        val listener = synchronized(requests) {
             change()
             dirty = true
             onChanged
@@ -139,14 +145,19 @@ class ToolpathsLayer private constructor(
             if (viewer == 0L) return
             NativeToolpaths.load(viewer, data)
             data = 0L
-            dirty = true
+            synchronized(requests) { dirty = true }
         }
-        if (dirty) {
-            applyRequests()
-            dirty = false
-        }
+        if (synchronized(requests) { dirty.also { dirty = false } }) applyRequests()
         NativeToolpaths.render(viewer, view, projection)
     }
+
+    /** What is requested of the viewer when the GL thread applies it. */
+    private class Requested(
+        val roles: Map<ToolpathsRole, Boolean>,
+        val options: Map<ToolpathsOption, Boolean>,
+        val layerRange: Pair<Int, Int>?,
+        val visibleMoves: Pair<Int, Int>?,
+    )
 
     private fun applyRequests() {
         if (!loaded) {
@@ -156,45 +167,51 @@ class ToolpathsLayer private constructor(
             // colours (ColorPrint) and a print of one by the feature type, once
             // the count of filaments changes; within the same count the user's
             // view type stays.
-            synchronized(memory) {
-                val count = if (first.usedExtruders.size > 1) 2 else 1
-                if (memory.lastExtruderCountDefaultApplied != count) {
-                    viewType = if (count == 2) ToolpathsViewType.ColorPrint else ToolpathsViewType.FeatureType
-                    memory.lastExtruderCountDefaultApplied = count
+            synchronized(requests) {
+                synchronized(memory) {
+                    val count = if (first.usedExtruders.size > 1) 2 else 1
+                    if (memory.lastExtruderCountDefaultApplied != count) {
+                        viewType = if (count == 2) ToolpathsViewType.ColorPrint else ToolpathsViewType.FeatureType
+                        memory.lastExtruderCountDefaultApplied = count
+                    }
+                    // update_layers_slider(): the span stays at its heights while the top height does.
+                    if (layerRange == null) layerRange = spanAfterReload(memory.span, first.layersZs.toList())
                 }
-                // update_layers_slider(): the span stays at its heights while the top height does.
-                if (layerRange == null) layerRange = spanAfterReload(memory.span, first.layersZs.toList())
             }
         }
-        if (appliedViewType != viewType) {
-            NativeToolpaths.setViewType(viewer, viewType.ordinal)
-            appliedViewType = viewType
+        val (type, mode) = synchronized(requests) { viewType to timeMode }
+        if (appliedViewType != type) {
+            NativeToolpaths.setViewType(viewer, type.ordinal)
+            appliedViewType = type
         }
-        if (appliedTimeMode != timeMode) {
-            NativeToolpaths.setTimeMode(viewer, timeMode.ordinal)
-            appliedTimeMode = timeMode
+        if (appliedTimeMode != mode) {
+            NativeToolpaths.setTimeMode(viewer, mode.ordinal)
+            appliedTimeMode = mode
         }
         var snapshot = NativeToolpaths.snapshot(viewer)
-        if (resetVisible) {
-            resetVisible = false
-            snapshot.roles.forEach { role -> ToolpathsRole.entries.getOrNull(role)?.let { roleVisibility[it] = true } }
+        val requested = synchronized(requests) {
+            if (resetVisible) {
+                resetVisible = false
+                snapshot.roles.forEach { role -> ToolpathsRole.entries.getOrNull(role)?.let { roleVisibility[it] = true } }
+            }
+            Requested(HashMap(roleVisibility), HashMap(optionVisibility), layerRange, visibleMoves)
         }
         var toggled = false
         snapshot.roles.forEachIndexed { index, role ->
-            val wanted = ToolpathsRole.entries.getOrNull(role)?.let(roleVisibility::get) ?: return@forEachIndexed
+            val wanted = ToolpathsRole.entries.getOrNull(role)?.let(requested.roles::get) ?: return@forEachIndexed
             if (wanted != snapshot.roleVisible[index]) {
                 NativeToolpaths.toggleExtrusionRoleVisibility(viewer, role)
                 toggled = true
             }
         }
         snapshot.options.forEachIndexed { index, option ->
-            val wanted = ToolpathsOption.entries.getOrNull(option)?.let(optionVisibility::get) ?: return@forEachIndexed
+            val wanted = ToolpathsOption.entries.getOrNull(option)?.let(requested.options::get) ?: return@forEachIndexed
             if (wanted != snapshot.optionVisible[index]) {
                 NativeToolpaths.toggleOptionVisibility(viewer, option)
                 toggled = true
             }
         }
-        val layers = layerRange
+        val layers = requested.layerRange
         if (layers != null && layers != appliedLayerRange) {
             val last = (snapshot.layersZs.size - 1).coerceAtLeast(0)
             NativeToolpaths.setLayersViewRange(viewer, layers.first.coerceIn(0, last), layers.second.coerceIn(0, last))
@@ -202,7 +219,7 @@ class ToolpathsLayer private constructor(
             appliedVisibleMoves = null
             toggled = true
         }
-        val moves = visibleMoves
+        val moves = requested.visibleMoves
         if (moves != null && (moves != appliedVisibleMoves || toggled)) {
             NativeToolpaths.setViewVisibleRange(viewer, moves.first, moves.second)
             appliedVisibleMoves = moves
@@ -218,7 +235,9 @@ class ToolpathsLayer private constructor(
     }
 
     /** What the next G-code starts from: the viewer's settings and the slider's span now. */
-    private fun remember(snapshot: NativeToolpathsSnapshot) = synchronized(memory) {
+    private fun remember(snapshot: NativeToolpathsSnapshot) = synchronized(requests) { synchronized(memory) { rememberLocked(snapshot) } }
+
+    private fun rememberLocked(snapshot: NativeToolpathsSnapshot) {
         memory.viewType = viewType
         memory.timeMode = timeMode
         memory.roleVisibility.clear()
@@ -251,7 +270,7 @@ class ToolpathsLayer private constructor(
         appliedTimeMode = null
         appliedLayerRange = null
         appliedVisibleMoves = null
-        dirty = true
+        synchronized(requests) { dirty = true }
     }
 
     companion object {
