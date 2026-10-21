@@ -13,6 +13,12 @@ OrcaSlicer 2.4.2 and in its main branch as of 2026-09:
   usampler2D is declared lowp. Mobile GPUs honour that, so colours, which are
   packed into floats up to 16777215, overflow and every toolpath turns white,
   and segment indices would stop at 65535. Both samplers are highp now.
+- Every segment is drawn as 24 vertices, which the vertex shader places by
+  their corner id alone, so it shades each of the eight corners three times.
+  A tile-based mobile GPU keeps every shaded vertex of a frame in memory,
+  over a gigabyte for a print of a million and a half segments, and does not
+  draw the frame at all. SegmentTemplate draws the triangles by index from
+  the eight corners: the same picture, with a third of the shading.
 
 Applied by engine/CMakeLists.txt to a copy of src/libvgcode in the build tree;
 the submodule is not modified. Remove it once upstream has these fixes.
@@ -135,3 +141,87 @@ index e688fa7..d5a8642 100644
  "const vec3  light_top_dir = vec3(-0.4574957, 0.4574957, 0.7624929);\n"
  "const float light_top_diffuse = 0.6 * 0.8;\n"
  "const float light_top_specular = 0.6 * 0.125;\n"
+diff --git a/src/SegmentTemplate.hpp b/src/SegmentTemplate.hpp
+index f104eef..ba7ae48 100644
+--- a/src/SegmentTemplate.hpp
++++ b/src/SegmentTemplate.hpp
+@@ -40,6 +40,9 @@ private:
+     //
+     unsigned int m_vao_id{ 0 };
+     unsigned int m_vbo_id{ 0 };
++#ifdef ENABLE_OPENGL_ES
++    unsigned int m_ebo_id{ 0 };
++#endif // ENABLE_OPENGL_ES
+     //
+     // Size of the data sent to gpu, in bytes.
+     //
+diff --git a/src/SegmentTemplate.cpp b/src/SegmentTemplate.cpp
+index 4e692d5..9c5b20a 100644
+--- a/src/SegmentTemplate.cpp
++++ b/src/SegmentTemplate.cpp
+@@ -26,12 +26,24 @@ static constexpr const std::array<uint8_t, 24> VERTEX_DATA = {
+     5, 7, 6, // back spike
+ };
+ 
++#ifdef ENABLE_OPENGL_ES
++// The vertex shader places a corner by its id alone, so the eight corners are
++// shaded once per segment, VERTEX_DATA drawing their triangles by index: the
++// same picture as drawing it as 24 vertices, with a third of the shading. A
++// tile-based mobile GPU keeps every vertex it shaded for a frame in memory,
++// over a gigabyte for the 24 vertices of a million and a half segments.
++static constexpr const std::array<uint8_t, 8> CORNER_IDS = { 0, 1, 2, 3, 4, 5, 6, 7 };
++#endif // ENABLE_OPENGL_ES
++
+ void SegmentTemplate::init()
+ {
+     if (m_vao_id != 0)
+         return;
+ 
+     m_size_in_bytes_gpu += VERTEX_DATA.size() * sizeof(uint8_t);
++#ifdef ENABLE_OPENGL_ES
++    m_size_in_bytes_gpu += CORNER_IDS.size() * sizeof(uint8_t);
++#endif // ENABLE_OPENGL_ES
+ 
+     int curr_vertex_array;
+     glsafe(glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &curr_vertex_array));
+@@ -43,7 +55,15 @@ void SegmentTemplate::init()
+ 
+     glsafe(glGenBuffers(1, &m_vbo_id));
+     glsafe(glBindBuffer(GL_ARRAY_BUFFER, m_vbo_id));
++#ifdef ENABLE_OPENGL_ES
++    glsafe(glBufferData(GL_ARRAY_BUFFER, CORNER_IDS.size() * sizeof(uint8_t), CORNER_IDS.data(), GL_STATIC_DRAW));
++    // The vertex array keeps the index buffer bound.
++    glsafe(glGenBuffers(1, &m_ebo_id));
++    glsafe(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo_id));
++    glsafe(glBufferData(GL_ELEMENT_ARRAY_BUFFER, VERTEX_DATA.size() * sizeof(uint8_t), VERTEX_DATA.data(), GL_STATIC_DRAW));
++#else
+     glsafe(glBufferData(GL_ARRAY_BUFFER, VERTEX_DATA.size() * sizeof(uint8_t), VERTEX_DATA.data(), GL_STATIC_DRAW));
++#endif // ENABLE_OPENGL_ES
+     glsafe(glEnableVertexAttribArray(0));
+ #ifdef ENABLE_OPENGL_ES
+     glsafe(glVertexAttribPointer(0, 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, (const void*)0));
+@@ -57,6 +77,12 @@ void SegmentTemplate::init()
+ 
+ void SegmentTemplate::shutdown()
+ {
++#ifdef ENABLE_OPENGL_ES
++    if (m_ebo_id != 0) {
++        glsafe(glDeleteBuffers(1, &m_ebo_id));
++        m_ebo_id = 0;
++    }
++#endif // ENABLE_OPENGL_ES
+     if (m_vbo_id != 0) {
+         glsafe(glDeleteBuffers(1, &m_vbo_id));
+         m_vbo_id = 0;
+@@ -78,7 +104,11 @@ void SegmentTemplate::render(size_t count)
+     glsafe(glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &curr_vertex_array));
+ 
+     glsafe(glBindVertexArray(m_vao_id));
++#ifdef ENABLE_OPENGL_ES
++    glsafe(glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(VERTEX_DATA.size()), GL_UNSIGNED_BYTE, nullptr, static_cast<GLsizei>(count)));
++#else
+     glsafe(glDrawArraysInstanced(GL_TRIANGLES, 0, static_cast<GLsizei>(VERTEX_DATA.size()), static_cast<GLsizei>(count)));
++#endif // ENABLE_OPENGL_ES
+     glsafe(glBindVertexArray(curr_vertex_array));
+ }
+ 
