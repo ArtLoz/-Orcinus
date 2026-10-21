@@ -376,7 +376,21 @@ const Slic3r::ModelObject* cached_object(const std::string& model_path)
 Slic3r::ModelObject* add_loaded_object(const std::string& model_path, Slic3r::Model& model)
 {
     const Slic3r::ModelObject* read = cached_object(model_path);
-    return read == nullptr ? nullptr : model.add_object(*read);
+    if (read == nullptr) {
+        return nullptr;
+    }
+    Slic3r::ModelObject* added = model.add_object(*read);
+    // ModelVolume::get_extruders() keeps the extruders a volume is painted with
+    // (mmuseg_extruders), which it finds with a TriangleSelector over the whole
+    // mesh, seconds for millions of triangles; a copy of the volume starts
+    // without them. The model read finds them once and hands them to every
+    // plate made of it, which keeps them while its paint stays the same.
+    for (std::size_t index = 0; index < read->volumes.size() && index < added->volumes.size(); ++index) {
+        read->volumes[index]->get_extruders();
+        added->volumes[index]->mmuseg_extruders = read->volumes[index]->mmuseg_extruders;
+        added->volumes[index]->mmuseg_ts = read->volumes[index]->mmuseg_ts;
+    }
+    return added;
 }
 
 // Forgets the models no object of the plate, nor any of their parts, is loaded from.

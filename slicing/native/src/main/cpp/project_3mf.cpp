@@ -926,7 +926,7 @@ ProjectSave save_project(
 )
 {
     ProjectSave result;
-    const std::lock_guard<std::mutex> engine_lock(detail::engine().mutex);
+    std::unique_lock<std::mutex> engine_lock(detail::engine().mutex);
     if (detail::engine().bundle == nullptr) {
         result.message = "OrcaSlicer profiles are not loaded";
         return result;
@@ -1144,6 +1144,11 @@ ProjectSave save_project(
             }
         }
 
+        // The file is written from the model, the configuration and the presets
+        // copied above, which the engine no longer shares: its other requests go
+        // on meanwhile, as the desktop app's backup thread writes alongside the UI.
+        // A project with a model of millions of triangles takes many seconds.
+        engine_lock.unlock();
         if (!Slic3r::store_bbs_3mf(store_params)) {
             // Plater::save_project()'s message box.
             result.status = SceneStatus::write_failed;
