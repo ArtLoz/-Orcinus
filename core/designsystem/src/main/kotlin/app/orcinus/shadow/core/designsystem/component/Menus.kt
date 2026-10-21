@@ -13,9 +13,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
@@ -29,12 +31,15 @@ import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 /**
  * OrcaSlicer's context menu (a wxMenu from MenuFactory), opened where it was
  * asked for: at [position] in pixels from the top start of the parent box.
+ * Its items keep a column for icons and check marks; [iconColumn] false drops
+ * it for a menu with neither, whose text would only stand indented.
  */
 @Composable
 fun OrcaContextMenu(
     expanded: Boolean,
     position: IntOffset,
     onDismissRequest: () -> Unit,
+    iconColumn: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Box(Modifier.offset { position }.size(0.dp)) {
@@ -43,10 +48,16 @@ fun OrcaContextMenu(
             onDismissRequest = onDismissRequest,
             containerColor = OrcaTheme.colors.window,
             shape = OrcaTheme.shapes.control,
-            content = content,
-        )
+        ) {
+            CompositionLocalProvider(LocalMenuIconColumn provides iconColumn) { content() }
+        }
     }
 }
+
+private val LocalMenuIconColumn = staticCompositionLocalOf { true }
+
+/** The empty place of an icon, which keeps an item's text in line with the check items. */
+private val NoIcon: @Composable () -> Unit = { Spacer(Modifier.size(OrcaTheme.dimensions.iconSmall)) }
 
 /** An item of an OrcaSlicer menu (append_menu_item), aligned with the check items. */
 @Composable
@@ -54,17 +65,14 @@ fun OrcaMenuItem(
     text: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
-    /**
-     * What stands where OrcaSlicer's menu icon does; empty space keeps the items
-     * aligned with check items. Null for a menu with neither, so its text starts at the edge.
-     */
-    leading: (@Composable () -> Unit)? = { Spacer(Modifier.size(OrcaTheme.dimensions.iconSmall)) },
+    /** What stands where OrcaSlicer's menu icon does; empty space in the menu's icon column without it. */
+    leading: (@Composable () -> Unit)? = null,
 ) {
     DropdownMenuItem(
         text = { MenuText(text, enabled) },
         onClick = onClick,
         enabled = enabled,
-        leadingIcon = leading,
+        leadingIcon = leading ?: NoIcon.takeIf { LocalMenuIconColumn.current },
     )
 }
 
@@ -91,7 +99,7 @@ fun OrcaMenuCheckItem(
                 // Widgets/DropDown draws "checked" as it is.
                 Icon(painterResource(R.drawable.orca_checked), contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(OrcaTheme.dimensions.iconSmall))
             } else {
-                Spacer(Modifier.size(OrcaTheme.dimensions.iconSmall))
+                NoIcon()
             }
         },
     )
@@ -112,7 +120,7 @@ fun OrcaSubmenu(
         text = { MenuText(text, enabled) },
         onClick = { open = !open },
         enabled = enabled,
-        leadingIcon = { Spacer(Modifier.size(OrcaTheme.dimensions.iconSmall)) },
+        leadingIcon = NoIcon.takeIf { LocalMenuIconColumn.current },
         trailingIcon = {
             Icon(
                 painterResource(R.drawable.orca_drop_down),

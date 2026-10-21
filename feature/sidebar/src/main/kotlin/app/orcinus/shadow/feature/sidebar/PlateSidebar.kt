@@ -1593,7 +1593,7 @@ private fun ProjectTitle(
                 onClick = { calibrationMenu = true },
                 enabled = prepareShown,
             )
-            OrcaContextMenu(expanded = calibrationMenu && prepareShown, position = IntOffset.Zero, onDismissRequest = { calibrationMenu = false }) {
+            OrcaContextMenu(expanded = calibrationMenu && prepareShown, position = IntOffset.Zero, onDismissRequest = { calibrationMenu = false }, iconColumn = false) {
                 CalibrationMenuItems(
                     enabled = canStartProject,
                     view3D = view3DShown,
@@ -1612,7 +1612,7 @@ private fun ProjectTitle(
                 contentDescription = orcaString("File"),
                 onClick = { fileMenu = true },
             )
-            OrcaContextMenu(expanded = fileMenu, position = IntOffset.Zero, onDismissRequest = { fileMenu = false }) {
+            OrcaContextMenu(expanded = fileMenu, position = IntOffset.Zero, onDismissRequest = { fileMenu = false }, iconColumn = false) {
                 OrcaMenuItem(
                     text = orcaString("New Project"),
                     onClick = {

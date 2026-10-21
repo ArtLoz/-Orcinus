@@ -257,8 +257,8 @@ private fun RecentFileItem(file: RecentFile, time: String, removeText: String, o
             Text(text = time, color = colors.textDimmed, style = OrcaTheme.typography.body12, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         // #recnet_context_menu: "Remove"; "Open Containing Folder" has no place on Android.
-        OrcaContextMenu(expanded = menu, position = IntOffset.Zero, onDismissRequest = { menu = false }) {
-            OrcaMenuItem(removeText, leading = null, onClick = {
+        OrcaContextMenu(expanded = menu, position = IntOffset.Zero, onDismissRequest = { menu = false }, iconColumn = false) {
+            OrcaMenuItem(removeText, onClick = {
                 menu = false
                 onRemove()
             })
