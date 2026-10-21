@@ -1,5 +1,6 @@
 package app.orcinus.shadow.core.designsystem.layout
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
@@ -254,5 +255,9 @@ private fun rememberSidebarDrawerState(visible: Boolean, onVisibleChange: (Boole
             if (open != currentVisible) currentOnVisibleChange(open)
         }
     }
+    // Back closes the open drawer before the content behind it goes back. The newest
+    // handler takes Back first, and the drawer's own one came with the window, before
+    // the tabs' back stack: this one comes as the drawer opens.
+    if (visible) BackHandler { currentOnVisibleChange(false) }
     return drawerState
 }
