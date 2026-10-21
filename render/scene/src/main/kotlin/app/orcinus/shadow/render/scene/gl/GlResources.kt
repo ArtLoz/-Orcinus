@@ -101,10 +101,23 @@ internal class GlVertexArray(
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
     }
 
+    /**
+     * A tile-based GPU keeps every vertex of a render pass it shaded in memory
+     * until the pass ends: the twelve million vertices of a model of four
+     * million triangles take more than a phone has left after a few quick
+     * frames, and the GPU stops. A large array is drawn [VERTICES_PER_PASS] at
+     * a time, glFlush() ending each pass.
+     */
     fun draw() {
         if (vertexCount == 0) return
         GLES30.glBindVertexArray(vertexArray[0])
-        GLES30.glDrawArrays(mode, 0, vertexCount)
+        var first = 0
+        while (first < vertexCount) {
+            if (first > 0) GLES30.glFlush()
+            val count = minOf(VERTICES_PER_PASS, vertexCount - first)
+            GLES30.glDrawArrays(mode, first, count)
+            first += count
+        }
         GLES30.glBindVertexArray(0)
     }
 
@@ -114,6 +127,9 @@ internal class GlVertexArray(
     }
 
     companion object {
+        /** A multiple of both 3 (GL_TRIANGLES) and 2 (GL_LINES), so no primitive is split. */
+        private const val VERTICES_PER_PASS = 3 * 2 * 262_144
+
         fun floatBuffer(values: FloatArray): FloatBuffer = ByteBuffer.allocateDirect(values.size * Float.SIZE_BYTES)
             .order(ByteOrder.nativeOrder())
             .asFloatBuffer()
