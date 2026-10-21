@@ -1,6 +1,7 @@
 package app.orcinus.shadow.core.ui.plate
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.stateDescription
 import app.orcinus.shadow.core.ui.R
@@ -83,6 +84,7 @@ fun PlateStrip(
                 modifier = Modifier
                     .padding(horizontal = 2.dp, vertical = 4.dp)
                     .size(OrcaTheme.dimensions.minimumTouchTarget - 8.dp)
+                    .clip(OrcaTheme.shapes.control)
                     .background(if (selected) colors.accentSelected else Color.Transparent, OrcaTheme.shapes.control)
                     .border(1.dp, if (selected) colors.accent else Color.Transparent, OrcaTheme.shapes.control)
                     .semantics {

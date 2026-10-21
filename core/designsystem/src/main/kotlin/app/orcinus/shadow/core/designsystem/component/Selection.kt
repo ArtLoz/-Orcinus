@@ -3,6 +3,7 @@ package app.orcinus.shadow.core.designsystem.component
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.indication
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -19,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -51,6 +53,10 @@ private val MODE_SWITCH_DOT_STEP = 15.dp
 private val MODE_SWITCH_TOUCH_WIDTH = 96.dp
 private val MODE_SWITCH_TOUCH_HEIGHT = 40.dp
 
+// A tap on a check box, radio button, or switch ripples in a circle around the
+// box or the thumb, as Material's own do, not over the square that takes it.
+private val SELECTION_RIPPLE = ripple(bounded = false, radius = 20.dp)
+
 /**
  * OrcaSlicer's check box, drawn with its own check_on / check_off /
  * check_half icons. A null [checked] shows the mixed state.
@@ -77,7 +83,13 @@ fun OrcaCheckBox(
             .minimumInteractiveComponentSize()
             .then(
                 if (onCheckedChange != null) {
-                    Modifier.triStateToggleable(state = state, enabled = enabled, role = Role.Checkbox) {
+                    Modifier.triStateToggleable(
+                        state = state,
+                        interactionSource = null,
+                        indication = SELECTION_RIPPLE,
+                        enabled = enabled,
+                        role = Role.Checkbox,
+                    ) {
                         onCheckedChange(checked != true)
                     }
                 } else {
@@ -111,7 +123,14 @@ fun OrcaRadioButton(
             .minimumInteractiveComponentSize()
             .then(
                 if (onClick != null) {
-                    Modifier.selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+                    Modifier.selectable(
+                        selected = selected,
+                        interactionSource = null,
+                        indication = SELECTION_RIPPLE,
+                        enabled = enabled,
+                        role = Role.RadioButton,
+                        onClick = onClick,
+                    )
                 } else {
                     Modifier
                 },
@@ -126,12 +145,13 @@ fun OrcaRadioButton(
  * OrcaSlicer's toggle switch (Widgets/SwitchButton): grey track, accent thumb
  * when on. A [mixed] switch stands for values that differ, as the half-checked
  * check box (CheckBox::SetHalfChecked()) does: the thumb in the middle, and a
- * tap switches it on.
+ * tap switches it on. Without [onCheckedChange] it only shows the state, for a
+ * row that toggles as a whole.
  */
 @Composable
 fun OrcaSwitch(
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
+    onCheckedChange: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     mixed: Boolean = false,
@@ -146,36 +166,47 @@ fun OrcaSwitch(
         },
         label = "thumb",
     )
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .minimumInteractiveComponentSize()
             .then(
-                if (mixed) {
-                    Modifier.triStateToggleable(ToggleableState.Indeterminate, enabled = enabled, role = Role.Switch) { onCheckedChange(true) }
-                } else {
-                    Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
+                when {
+                    onCheckedChange == null -> Modifier
+                    mixed -> Modifier.triStateToggleable(ToggleableState.Indeterminate, interaction, null, enabled = enabled, role = Role.Switch) {
+                        onCheckedChange(true)
+                    }
+                    else -> Modifier.toggleable(
+                        value = checked,
+                        interactionSource = interaction,
+                        indication = null,
+                        enabled = enabled,
+                        role = Role.Switch,
+                        onValueChange = onCheckedChange,
+                    )
                 },
             ),
         contentAlignment = Alignment.Center,
     ) {
+        // The track is painted, not clipped, so the ripple of the thumb spreads past it.
         Box(
             Modifier
                 .width(36.dp)
                 .height(20.dp)
-                .clip(CircleShape)
-                .background(if (on && enabled) colors.accent.copy(alpha = 0.35f) else colors.switchTrack),
+                .background(if (on && enabled) colors.accent.copy(alpha = 0.35f) else colors.switchTrack, CircleShape),
         ) {
             Box(
                 Modifier
                     .offset(x = thumbOffset, y = 2.dp)
                     .size(16.dp)
-                    .clip(CircleShape)
+                    .indication(interaction, SELECTION_RIPPLE)
                     .background(
                         when {
                             !enabled -> colors.textDisabledOnBox
                             on -> colors.accent
                             else -> colors.switchThumb
                         },
+                        CircleShape,
                     ),
             )
         }

@@ -202,7 +202,8 @@ private fun SwitchRow(title: String, detail: String?, checked: Boolean, enabled:
             if (detail != null) Text(detail, color = OrcaTheme.colors.textSide, style = OrcaTheme.typography.body12)
         }
         Spacer(Modifier.width(12.dp))
-        OrcaSwitch(checked = checked, onCheckedChange = onChange, enabled = enabled)
+        // The row toggles; the switch only shows it, so a tap ripples once.
+        OrcaSwitch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }
 

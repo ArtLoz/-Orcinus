@@ -3,7 +3,6 @@ package app.orcinus.shadow.render.scene
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,9 +17,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R
+import app.orcinus.shadow.core.designsystem.component.iconClickable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.model.ColorRgba
 import java.util.Locale
@@ -110,7 +109,7 @@ private fun DimensionLabelWindow(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(EDIT_TOUCH_SIZE.dp)
-                    .clickable(role = Role.Button, onClickLabel = editDescription) { onEditDistance(label.value) },
+                    .iconClickable(onClickLabel = editDescription) { onEditDistance(label.value) },
             ) {
                 Image(painterResource(R.drawable.orca_edit_button), contentDescription = editDescription, modifier = Modifier.size(EDIT_ICON_SIZE.dp))
             }

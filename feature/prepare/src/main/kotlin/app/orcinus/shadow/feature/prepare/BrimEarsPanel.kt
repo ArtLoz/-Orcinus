@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -138,6 +139,7 @@ internal fun BrimEarsPanel(mode: BrimEarsMode, ears: Int, actions: BrimEarsActio
                     style = OrcaTheme.typography.body12.copy(fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline),
                     modifier = Modifier
                         .padding(start = 16.dp, top = 4.dp)
+                        .clip(OrcaTheme.shapes.control)
                         .clickable(onClick = actions.setPainted),
                 )
             }

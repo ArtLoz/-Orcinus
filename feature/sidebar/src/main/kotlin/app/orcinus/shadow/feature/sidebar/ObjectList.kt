@@ -24,6 +24,7 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import app.orcinus.shadow.core.designsystem.component.iconClickable
 import app.orcinus.shadow.core.model.Axis
 import app.orcinus.shadow.core.model.EmbossKind
 import app.orcinus.shadow.core.model.LayerRange
@@ -1501,7 +1502,7 @@ private fun ObjectListRow(
                 modifier = Modifier
                     .width(24.dp)
                     .heightIn(min = 40.dp)
-                    .then(if (expanded != null) Modifier.clickable(role = Role.Button, onClick = onExpand) else Modifier),
+                    .then(if (expanded != null) Modifier.iconClickable(onClick = onExpand) else Modifier),
                 contentAlignment = Alignment.Center,
             ) {
                 if (expanded != null) {
@@ -1522,8 +1523,8 @@ private fun ObjectListRow(
                     contentDescription = warning.tooltip,
                     tint = Color.Unspecified,
                     modifier = Modifier
-                        .clickable(enabled = enabled, role = Role.Button, onClick = warning.onRepair)
                         .padding(end = 8.dp)
+                        .iconClickable(enabled = enabled, onClick = warning.onRepair)
                         .size(OrcaTheme.dimensions.iconSmall),
                 )
             }
@@ -1555,7 +1556,7 @@ private fun ObjectListRow(
                         modifier = Modifier
                             .width(COLUMN_WIDTH)
                             .heightIn(min = 40.dp)
-                            .then(cell.onClick?.let { Modifier.clickable(enabled = enabled, role = Role.Button, onClick = it) } ?: Modifier),
+                            .then(cell.onClick?.let { Modifier.iconClickable(enabled = enabled, onClick = it) } ?: Modifier),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(painterResource(cell.icon), contentDescription = cell.description, tint = Color.Unspecified, modifier = Modifier.size(OrcaTheme.dimensions.iconSmall))
@@ -1576,7 +1577,7 @@ private fun ObjectListRow(
                     modifier = Modifier
                         .then(
                             if (onResetSettings != null) {
-                                Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onResetSettings)
+                                Modifier.iconClickable(enabled = enabled, onClick = onResetSettings)
                             } else {
                                 Modifier
                             },

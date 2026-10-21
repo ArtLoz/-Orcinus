@@ -33,6 +33,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaSheet
+import app.orcinus.shadow.core.designsystem.component.iconClickable
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
 import app.orcinus.shadow.core.ui.orca.OrcaHint
 import app.orcinus.shadow.core.ui.orca.OrcaHints
@@ -210,7 +211,7 @@ private fun Arrow(icon: Int, onClick: () -> Unit) {
         modifier = Modifier
             .padding(start = 8.dp)
             .size(28.dp)
-            .clickable(role = Role.Button, onClick = onClick)
+            .iconClickable(onClick = onClick)
             .padding(4.dp),
     )
 }

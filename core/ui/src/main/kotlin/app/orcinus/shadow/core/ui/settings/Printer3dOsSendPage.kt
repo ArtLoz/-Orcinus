@@ -1,6 +1,5 @@
 package app.orcinus.shadow.core.ui.settings
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +23,7 @@ import app.orcinus.shadow.core.designsystem.R as DesignR
 import app.orcinus.shadow.core.designsystem.component.OrcaButton
 import app.orcinus.shadow.core.designsystem.component.OrcaButtonStyle
 import app.orcinus.shadow.core.designsystem.component.OrcaComboField
+import app.orcinus.shadow.core.designsystem.component.iconClickable
 import app.orcinus.shadow.core.designsystem.component.orcaPickerAnchor
 import app.orcinus.shadow.core.designsystem.component.rememberOrcaPickerAnchor
 import app.orcinus.shadow.core.designsystem.component.OrcaSegmentedSwitch
@@ -108,7 +108,7 @@ internal fun Printer3dOsSendPage(
                                     contentDescription = orcaString("Project:"),
                                     tint = colors.textSide,
                                     modifier = Modifier
-                                        .clickable(role = Role.DropdownList) { choosingProject = true }
+                                        .iconClickable(role = Role.DropdownList) { choosingProject = true }
                                         .padding(horizontal = 8.dp)
                                         .size(OrcaTheme.dimensions.iconSmall),
                                 )

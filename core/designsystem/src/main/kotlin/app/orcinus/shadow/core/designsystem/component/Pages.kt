@@ -22,6 +22,7 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -126,6 +127,7 @@ fun OrcaLink(
         style = OrcaTheme.typography.body14,
         modifier = modifier
             .minimumInteractiveComponentSize()
+            .clip(OrcaTheme.shapes.control)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(vertical = 4.dp),
     )

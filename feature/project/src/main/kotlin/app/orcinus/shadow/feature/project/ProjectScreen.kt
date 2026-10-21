@@ -328,7 +328,8 @@ private fun Pictures(files: List<AuxiliaryFile>) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .clickable { viewed = null },
+                    // A tap anywhere closes the picture; a ripple over the whole screen would only flash.
+                    .clickable(interactionSource = null, indication = null) { viewed = null },
                 contentAlignment = Alignment.Center,
             ) {
                 FileImage(file, Modifier.fillMaxWidth(), ContentScale.Fit)

@@ -3,10 +3,12 @@ package app.orcinus.shadow.core.designsystem.component
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 
 /**
  * A tap without Material's ripple, which OrcaSlicer's controls never show: they
@@ -48,3 +50,23 @@ fun Modifier.orcaSelectable(
         onClick = onClick,
     )
 }
+
+/**
+ * A tap on an icon with no button drawn around it: it ripples in a circle about
+ * the icon, as Material's icon buttons do, not over the rectangle that takes the tap.
+ */
+fun Modifier.iconClickable(
+    enabled: Boolean = true,
+    role: Role? = Role.Button,
+    onClickLabel: String? = null,
+    onClick: () -> Unit,
+): Modifier = clickable(
+    interactionSource = null,
+    indication = ICON_RIPPLE,
+    enabled = enabled,
+    role = role,
+    onClickLabel = onClickLabel,
+    onClick = onClick,
+)
+
+private val ICON_RIPPLE = ripple(bounded = false, radius = 16.dp)

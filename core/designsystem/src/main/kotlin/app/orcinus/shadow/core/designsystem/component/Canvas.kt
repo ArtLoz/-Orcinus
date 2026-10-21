@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,9 +38,11 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -49,21 +52,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.layoutId
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import app.orcinus.shadow.core.designsystem.R
 import app.orcinus.shadow.core.designsystem.theme.OrcaTheme
@@ -356,6 +364,7 @@ fun OrcaNotification(
     var lines by remember { mutableIntStateOf(0) }
     var initialMultiline by remember { mutableStateOf<Boolean?>(null) }
     var userMultiline by remember { mutableStateOf<Boolean?>(null) }
+    val textLines = remember { NotificationTextLines() }
     fun whole(count: Int): Boolean = userMultiline ?: initialMultiline ?: multiline ?: (count <= MAX_WHOLE_LINES)
     val collapsed = collapsible && lines > COLLAPSED_LINES && !whole(lines)
     val minimizable = collapsible && !block && lines > MINIMIZABLE_LINES && whole(lines)
@@ -379,7 +388,7 @@ fun OrcaNotification(
                     },
                 ),
         )
-        CompositionLocalProvider(LocalNotificationLevel provides level) {
+        CompositionLocalProvider(LocalNotificationLevel provides level, LocalNotificationTextLines provides textLines) {
             Box(
                 Modifier
                     .weight(1f, fill = false)
@@ -396,6 +405,7 @@ fun OrcaNotification(
                             layout(placeable.width, height) { placeable.place(0, 0) }
                         }
                         .onSizeChanged { size ->
+                            textLines.width = size.width
                             val count = (size.height / lineHeight).roundToInt()
                             if (initialMultiline == null) initialMultiline = multiline ?: (count <= MAX_WHOLE_LINES)
                             lines = count
@@ -403,14 +413,28 @@ fun OrcaNotification(
                     content = content,
                 )
                 if (collapsed) {
-                    // render_text(): the second line ends in ".." and the "More" hypertext.
-                    Row(Modifier.align(Alignment.BottomEnd).background(background).padding(start = 4.dp)) {
-                        OrcaNotificationText("..")
+                    // render_text(): the second line ends in ".." and the "More" hypertext, right
+                    // after its last word; over the end of a line too full to leave room for them.
+                    var moreWidth by remember { mutableIntStateOf(0) }
+                    Row(
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            .onSizeChanged { moreWidth = it.width }
+                            .offset {
+                                val end = textLines.endAt(COLLAPSED_LINES * lineHeight - lineHeight / 2) ?: Float.MAX_VALUE
+                                IntOffset(minOf(end.roundToInt(), textLines.width - moreWidth).coerceAtLeast(0), 0)
+                            }
+                            .background(background)
+                            .padding(start = 4.dp),
+                    ) {
+                        CompositionLocalProvider(LocalNotificationTextLines provides null) { OrcaNotificationText("..") }
                         Text(
                             text = labels.more,
                             color = notificationLinkColor(level),
                             style = OrcaTheme.typography.body13.copy(textDecoration = TextDecoration.Underline),
-                            modifier = Modifier.clickable(role = Role.Button) { userMultiline = true },
+                            modifier = Modifier
+                                .clip(OrcaTheme.shapes.control)
+                                .clickable(role = Role.Button) { userMultiline = true },
                         )
                     }
                 }
@@ -448,6 +472,30 @@ fun OrcaNotification(
     }
 }
 
+/**
+ * Where the text lines of a notification end, as its texts lay them out, so the
+ * ".." of a collapsed one follows the last word of its second line.
+ */
+private class NotificationTextLines {
+    val layouts = mutableStateMapOf<Any, TextLayoutResult>()
+    val positions = mutableStateMapOf<Any, Offset>()
+    var width by mutableIntStateOf(0)
+
+    /** The right end of the line about [y] from the top of the text, or null where no text is. */
+    fun endAt(y: Float): Float? = layouts.firstNotNullOfOrNull { (key, layout) ->
+        val position = positions[key] ?: return@firstNotNullOfOrNull null
+        val inText = y - position.y
+        if (inText < 0 || inText > layout.size.height) null else position.x + layout.getLineRight(layout.getLineForVerticalPosition(inText))
+    }
+
+    fun remove(key: Any) {
+        layouts.remove(key)
+        positions.remove(key)
+    }
+}
+
+private val LocalNotificationTextLines = staticCompositionLocalOf<NotificationTextLines?> { null }
+
 /** PopNotification::init(): a text of up to six lines shows whole. */
 private const val MAX_WHOLE_LINES = 6
 
@@ -474,6 +522,7 @@ fun OrcaNotificationLink(text: String, onClick: () -> Unit) {
         style = OrcaTheme.typography.body13.copy(textDecoration = TextDecoration.Underline),
         modifier = Modifier
             .padding(top = 4.dp)
+            .clip(OrcaTheme.shapes.control)
             .clickable(role = Role.Button, onClick = onClick),
     )
 }
@@ -484,8 +533,15 @@ fun OrcaNotificationLink(text: String, onClick: () -> Unit) {
  */
 @Composable
 fun OrcaNotificationText(text: String, emphasized: Boolean = false, error: Boolean = false) {
+    val lines = LocalNotificationTextLines.current
+    val key = remember { Any() }
+    if (lines != null) {
+        DisposableEffect(lines) { onDispose { lines.remove(key) } }
+    }
     Text(
         text = text,
+        onTextLayout = { lines?.layouts?.set(key, it) },
+        modifier = if (lines == null) Modifier else Modifier.onPlaced { lines.positions[key] = it.positionInParent() },
         color = when {
             LocalNotificationLevel.current == OrcaNotificationLevel.Error ||
                 LocalNotificationLevel.current == OrcaNotificationLevel.SeriousWarning -> Color.White
@@ -520,6 +576,7 @@ fun OrcaProgressNotification(
                 style = OrcaTheme.typography.body13,
                 modifier = Modifier
                     .padding(start = 16.dp)
+                    .clip(OrcaTheme.shapes.control)
                     .clickable(role = Role.Button, onClick = onCancel)
                     .padding(vertical = 4.dp),
             )

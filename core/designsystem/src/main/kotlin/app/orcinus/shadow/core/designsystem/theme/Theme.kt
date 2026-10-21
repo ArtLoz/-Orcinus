@@ -1,7 +1,9 @@
 package app.orcinus.shadow.core.designsystem.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RippleConfiguration
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -44,8 +46,13 @@ fun OrcinusTheme(
         MaterialTheme(
             colorScheme = colors.toMaterialColorScheme(),
             typography = OrcaMaterialTypography,
-            content = content,
-        )
+        ) {
+            // A ripple takes the colour of the content it is over, black unless
+            // a Surface says otherwise: on the dark theme's panels it darkened
+            // them so little that a tap showed nothing. The text's colour shows
+            // on both themes, as Material's own onSurface ripple does.
+            CompositionLocalProvider(LocalRippleConfiguration provides RippleConfiguration(color = colors.text), content = content)
+        }
     }
 }
 

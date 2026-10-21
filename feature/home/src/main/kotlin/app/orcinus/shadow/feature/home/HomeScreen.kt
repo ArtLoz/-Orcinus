@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +37,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -214,18 +217,26 @@ private fun MenuItem(@DrawableRes icon: Int, title: String, description: String,
 private fun RecentFileItem(file: RecentFile, time: String, removeText: String, onOpen: () -> Unit, onRemove: () -> Unit) {
     val colors = OrcaTheme.colors
     var menu by remember { mutableStateOf(false) }
+    // The whole item takes the tap, and the picture, the card that shows, ripples.
+    val interaction = remember { MutableInteractionSource() }
     Box {
         Column(
             Modifier
                 .fillMaxWidth()
-                .clip(OrcaTheme.shapes.compact)
-                .combinedClickable(onClick = onOpen, onLongClick = { menu = true }, onLongClickLabel = removeText),
+                .combinedClickable(
+                    interactionSource = interaction,
+                    indication = null,
+                    onClick = onOpen,
+                    onLongClick = { menu = true },
+                    onLongClickLabel = removeText,
+                ),
         ) {
             Box(
                 Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
                     .clip(THUMBNAIL_SHAPE)
+                    .indication(interaction, ripple())
                     .background(colors.buttonBackground),
             ) {
                 val thumbnail = file.thumbnail
@@ -247,7 +258,7 @@ private fun RecentFileItem(file: RecentFile, time: String, removeText: String, o
         }
         // #recnet_context_menu: "Remove"; "Open Containing Folder" has no place on Android.
         OrcaContextMenu(expanded = menu, position = IntOffset.Zero, onDismissRequest = { menu = false }) {
-            OrcaMenuItem(removeText, onClick = {
+            OrcaMenuItem(removeText, leading = null, onClick = {
                 menu = false
                 onRemove()
             })
