@@ -451,7 +451,9 @@ internal fun PreviewScreen(
     // plates show instead of the plate once they are all sliced.
     val allPlates = state.allPlates
     val allPlatesShown = allPlates != null && allPlates.selected && allPlates.state == PlateSliceState.SLICED
-    val peek = if (shown != null && view != null && !allPlatesShown) SheetPeekHeight + navigationBar else 0.dp
+    // The collapsed sheet shows the print actions over the summary, whatever their height.
+    var printActionsHeight by remember { mutableStateOf(0.dp) }
+    val peek = if (shown != null && view != null && !allPlatesShown) SheetPeekHeight + printActionsHeight + navigationBar else 0.dp
 
     // The print button's exports, the upload and the share sheet, or the slice button while the codes on the
     // layers wait for a new slice: the top of the legend's sheet, or of its panel on a wide canvas, as the
@@ -907,8 +909,11 @@ internal fun PreviewScreen(
         BottomSheetScaffold(
             sheetContent = {
                 if (shown != null && view != null) {
-                    printActions()
+                    val density = LocalDensity.current
                     ToolpathsSheet(
+                        header = {
+                            Box(Modifier.onSizeChanged { printActionsHeight = with(density) { it.height.toDp() } }) { printActions() }
+                        },
                         view = view,
                         statistics = shown.statistics,
                         imperial = canvas.imperialUnits,

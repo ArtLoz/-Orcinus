@@ -107,6 +107,8 @@ internal fun ToolpathsSheet(
     onTimeModeChange: (ToolpathsTimeMode) -> Unit = {},
     /** The presets a G-code file the preview shows on its own names, which the "Settings" section lists; null for none. */
     gcodeSettings: GcodeSettingsIds? = null,
+    /** What stands under the handle, over the summary: the print actions. */
+    header: @Composable () -> Unit = {},
 ) {
     val totalTime = legendTotalTime(view, statistics)
     val navigationBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -118,6 +120,7 @@ internal fun ToolpathsSheet(
             .verticalScroll(rememberScrollState()),
     ) {
         OrcaSheetHandle(Modifier.align(Alignment.CenterHorizontally))
+        header()
         LegendSummary(view, statistics, imperial, totalTime)
         // Collapsed, the sheet ends here, above the navigation bar.
         Spacer(Modifier.height(SUMMARY_BOTTOM + navigationBar))
