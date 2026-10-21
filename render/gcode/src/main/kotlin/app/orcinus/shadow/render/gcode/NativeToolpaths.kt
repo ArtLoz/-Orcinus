@@ -39,6 +39,9 @@ internal object NativeToolpaths {
     /** Vertex ids of the first and last visible move. */
     external fun setViewVisibleRange(viewer: Long, first: Int, last: Int)
 
+    /** At most [budget] of the segments shown are drawn, every n-th of them; 0 draws every one. */
+    external fun setSegmentBudget(viewer: Long, budget: Int)
+
     /** libvgcode::EGCodeExtrusionRole. */
     external fun toggleExtrusionRoleVisibility(viewer: Long, role: Int)
 

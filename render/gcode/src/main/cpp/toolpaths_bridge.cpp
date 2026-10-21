@@ -18,6 +18,7 @@
 #include <GLES3/gl3.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <array>
 #include <cfloat>
 #include <cmath>
@@ -291,6 +292,17 @@ JNIEXPORT void JNICALL
 Java_app_orcinus_shadow_render_gcode_NativeToolpaths_setViewVisibleRange(JNIEnv*, jobject, jlong viewer, jint first, jint last)
 {
     viewer_of(viewer).set_view_visible_range(static_cast<libvgcode::Interval::value_type>(first), static_cast<libvgcode::Interval::value_type>(last));
+}
+
+// At most [budget] of the segments shown are drawn, every n-th of them
+// (Viewer::set_segments_stride()); 0 draws every one.
+JNIEXPORT void JNICALL
+Java_app_orcinus_shadow_render_gcode_NativeToolpaths_setSegmentBudget(JNIEnv*, jobject, jlong viewer, jint budget)
+{
+    libvgcode::Viewer& shown = viewer_of(viewer);
+    const size_t count = shown.get_enabled_segments_count();
+    const size_t stride = budget <= 0 ? 1 : std::max<size_t>(1, (count + static_cast<size_t>(budget) - 1) / static_cast<size_t>(budget));
+    shown.set_segments_stride(static_cast<uint32_t>(stride));
 }
 
 JNIEXPORT void JNICALL

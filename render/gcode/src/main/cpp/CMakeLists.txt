@@ -8,6 +8,9 @@ add_library(orcinus_toolpaths_file INTERFACE)
 target_include_directories(orcinus_toolpaths_file INTERFACE "${CMAKE_CURRENT_LIST_DIR}" "${LIBDIR}")
 
 add_library(orcinus_toolpaths SHARED toolpaths_bridge.cpp)
+# The viewer's patched API (patches/libvgcode-opengl-es.patch), before
+# upstream's headers; the engine only converts toolpaths, as upstream does.
+target_include_directories(orcinus_toolpaths BEFORE PRIVATE "${LIBVGCODE_PATCHED_ROOT}")
 find_library(android_log_library log REQUIRED)
 target_link_libraries(orcinus_toolpaths PRIVATE orcinus_toolpaths_file libvgcode ${android_log_library})
 # The OrcaSlicer version the toolpaths OBJ file names as its generator.

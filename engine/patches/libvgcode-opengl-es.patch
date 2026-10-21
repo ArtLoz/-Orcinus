@@ -19,15 +19,92 @@ OrcaSlicer 2.4.2 and in its main branch as of 2026-09:
   over a gigabyte for a print of a million and a half segments, and does not
   draw the frame at all. SegmentTemplate draws the triangles by index from
   the eight corners: the same picture, with a third of the shading.
+- Even so the shaded vertices of a whole print may not fit the memory a
+  phone has left, and the print vanishes from the frame: the segments are
+  drawn 131072 a render pass, glFlush() ending each.
+- A phone draws such a print a frame a second.
+  Viewer::set_segments_stride() draws every n-th of the segments shown, which
+  the app does while the camera moves, and get_enabled_segments_count() says
+  how many are shown.
 
 Applied by engine/CMakeLists.txt to a copy of src/libvgcode in the build tree;
 the submodule is not modified. Remove it once upstream has these fixes.
 
+diff --git a/include/Viewer.hpp b/include/Viewer.hpp
+index fa3236f..29eb319 100644
+--- a/include/Viewer.hpp
++++ b/include/Viewer.hpp
+@@ -395,6 +395,15 @@ public:
+     // Return the size of the used gpu memory, in bytes
+     //
+     size_t get_used_gpu_memory() const;
++    //
++    // Return the count of segments the current view settings show.
++    //
++    size_t get_enabled_segments_count() const;
++    //
++    // Draw only every stride-th of the segments shown, 1 for every one, so a
++    // print of millions of segments can be turned on a phone; OpenGL ES only.
++    //
++    void set_segments_stride(uint32_t stride);
+ 
+ #if VGCODE_ENABLE_COG_AND_TOOL_MARKERS
+     //
+diff --git a/src/Viewer.cpp b/src/Viewer.cpp
+index 612a1ed..6140bef 100644
+--- a/src/Viewer.cpp
++++ b/src/Viewer.cpp
+@@ -357,6 +357,16 @@ size_t Viewer::get_used_gpu_memory() const
+     return m_impl->get_used_gpu_memory();
+ }
+ 
++size_t Viewer::get_enabled_segments_count() const
++{
++    return m_impl->get_enabled_segments_count();
++}
++
++void Viewer::set_segments_stride(uint32_t stride)
++{
++    m_impl->set_segments_stride(stride);
++}
++
+ #if VGCODE_ENABLE_COG_AND_TOOL_MARKERS
+ Vec3 Viewer::get_cog_position() const
+ {
 diff --git a/src/ViewerImpl.hpp b/src/ViewerImpl.hpp
-index a574003..3caa809 100644
+index a574003..99c728c 100644
 --- a/src/ViewerImpl.hpp
 +++ b/src/ViewerImpl.hpp
-@@ -353,8 +353,10 @@ private:
+@@ -174,6 +174,13 @@ public:
+     size_t get_used_cpu_memory() const;
+     size_t get_used_gpu_memory() const;
+ 
++#ifdef ENABLE_OPENGL_ES
++    size_t get_enabled_segments_count() const { return m_texture_data.get_enabled_segments_count(); }
++#else
++    size_t get_enabled_segments_count() const { return m_enabled_segments_count; }
++#endif // ENABLE_OPENGL_ES
++    void set_segments_stride(uint32_t stride) { m_segments_stride = stride > 0 ? stride : 1; }
++
+ #if VGCODE_ENABLE_COG_AND_TOOL_MARKERS
+     Vec3 get_cog_marker_position() const { return m_cog_marker.get_position(); }
+ 
+@@ -321,6 +328,14 @@ private:
+     int m_uni_segments_height_width_angle_tex_id{ -1 };
+     int m_uni_segments_colors_tex_id{ -1 };
+     int m_uni_segments_segment_index_tex_id{ -1 };
++#ifdef ENABLE_OPENGL_ES
++    int m_uni_segments_instance_offset_id{ -1 };
++    int m_uni_segments_instance_stride_id{ -1 };
++#endif // ENABLE_OPENGL_ES
++    //
++    // Every how many segments shown one is drawn (set_segments_stride()).
++    //
++    uint32_t m_segments_stride{ 1 };
+     //
+     // Caches for OpenGL uniforms id for options shader 
+     //
+@@ -353,8 +368,10 @@ private:
      {
      public:
          void init(size_t vertices_count);
@@ -41,7 +118,7 @@ index a574003..3caa809 100644
          void set_enabled_segments(const std::vector<uint32_t>& enabled_segments);
          void set_enabled_options(const std::vector<uint32_t>& enabled_options);
 diff --git a/src/ViewerImpl.cpp b/src/ViewerImpl.cpp
-index 1c52ffe..b631292 100644
+index 1c52ffe..e6040ca 100644
 --- a/src/ViewerImpl.cpp
 +++ b/src/ViewerImpl.cpp
 @@ -349,7 +349,7 @@ void ViewerImpl::TextureData::init(size_t vertices_count)
@@ -108,7 +185,18 @@ index 1c52ffe..b631292 100644
  
          remaining = (remaining > tex_capacity) ? remaining - tex_capacity : 0;
      }
-@@ -1880,7 +1880,7 @@ void ViewerImpl::update_color_ranges()
+@@ -763,6 +763,10 @@ void ViewerImpl::init(const std::string& opengl_context_version)
+     m_uni_segments_height_width_angle_tex_id = glGetUniformLocation(m_segments_shader_id, "height_width_angle_tex");
+     m_uni_segments_colors_tex_id             = glGetUniformLocation(m_segments_shader_id, "color_tex");
+     m_uni_segments_segment_index_tex_id      = glGetUniformLocation(m_segments_shader_id, "segment_index_tex");
++#ifdef ENABLE_OPENGL_ES
++    m_uni_segments_instance_offset_id        = glGetUniformLocation(m_segments_shader_id, "instance_offset");
++    m_uni_segments_instance_stride_id        = glGetUniformLocation(m_segments_shader_id, "instance_stride");
++#endif // ENABLE_OPENGL_ES
+     glcheck();
+     assert(m_uni_segments_view_matrix_id != -1 &&
+            m_uni_segments_projection_matrix_id != -1 &&
+@@ -1880,7 +1884,7 @@ void ViewerImpl::update_color_ranges()
  void ViewerImpl::update_heights_widths()
  {
  #ifdef ENABLE_OPENGL_ES
@@ -117,21 +205,59 @@ index 1c52ffe..b631292 100644
      heights_widths_angles.reserve(m_vertices.size());
      extract_pos_and_or_hwa(m_vertices, m_travels_radius, m_wipes_radius, m_valid_lines_bitset, nullptr, &heights_widths_angles);
      m_texture_data.set_heights_widths_angles(heights_widths_angles);
+@@ -1945,6 +1949,7 @@ void ViewerImpl::render_segments(const Mat4x4& view_matrix, const Mat4x4& projec
+     int curr_bound_texture = 0;
+     glsafe(glGetIntegerv(GL_TEXTURE_BINDING_2D, &curr_bound_texture));
+ 
++    glsafe(glUniform1i(m_uni_segments_instance_stride_id, static_cast<int>(m_segments_stride)));
+     for (size_t i = 0; i < m_texture_data.get_count(); ++i) {
+         const auto [id, count] = m_texture_data.get_enabled_segments_tex_id(i);
+         if (count == 0)
+@@ -1957,7 +1962,17 @@ void ViewerImpl::render_segments(const Mat4x4& view_matrix, const Mat4x4& projec
+         glsafe(glBindTexture(GL_TEXTURE_2D, m_texture_data.get_colors_tex_id(i).first));
+         glsafe(glActiveTexture(GL_TEXTURE3));
+         glsafe(glBindTexture(GL_TEXTURE_2D, id));
+-        m_segment_template.render(count);
++        // A tile-based GPU keeps every segment of a render pass in memory until
++        // the pass ends, so the segments are drawn a batch a pass: a print of
++        // millions of them fits a phone's memory however full it is.
++        static constexpr size_t SEGMENTS_PER_PASS = 131072;
++        const size_t drawn = (count + m_segments_stride - 1) / m_segments_stride;
++        for (size_t first = 0; first < drawn; first += SEGMENTS_PER_PASS) {
++            if (first > 0)
++                glsafe(glFlush());
++            glsafe(glUniform1i(m_uni_segments_instance_offset_id, static_cast<int>(first)));
++            m_segment_template.render(std::min(SEGMENTS_PER_PASS, drawn - first));
++        }
+     }
+ #else
+     std::array<int, 4> curr_bound_texture = { 0, 0, 0, 0 };
 diff --git a/src/ShadersES.hpp b/src/ShadersES.hpp
-index e688fa7..d5a8642 100644
+index e688fa7..829e161 100644
 --- a/src/ShadersES.hpp
 +++ b/src/ShadersES.hpp
-@@ -12,7 +12,8 @@ namespace libvgcode {
+@@ -12,7 +12,10 @@ namespace libvgcode {
  
  static const char* Segments_Vertex_Shader_ES =
  "#version 300 es\n"
 -"precision lowp usampler2D;\n"
 +"precision highp usampler2D;\n"
 +"precision highp sampler2D;\n"
++"uniform int instance_offset;\n"
++"uniform int instance_stride;\n"
  "#define POINTY_CAPS\n"
  "#define FIX_TWISTING\n"
  "const vec3  light_top_dir = vec3(-0.4574957, 0.4574957, 0.7624929);\n"
-@@ -158,7 +159,8 @@ static const char* Segments_Fragment_Shader_ES =
+@@ -57,7 +60,7 @@ static const char* Segments_Vertex_Shader_ES =
+ "}\n"
+ "void main() {\n"
+ "  int vertex_id = int(vertex_id_float);\n"
+-"  int id_a = int(texelFetch(segment_index_tex, tex_coord_u(segment_index_tex, gl_InstanceID), 0).r);\n"
++"  int id_a = int(texelFetch(segment_index_tex, tex_coord_u(segment_index_tex, (gl_InstanceID + instance_offset) * instance_stride), 0).r);\n"
+ "  int id_b = id_a + 1;\n"
+ "  vec3 pos_a = texelFetch(position_tex, tex_coord(position_tex, id_a), 0).xyz;\n"
+ "  vec3 pos_b = texelFetch(position_tex, tex_coord(position_tex, id_b), 0).xyz;\n"
+@@ -158,7 +161,8 @@ static const char* Segments_Fragment_Shader_ES =
  
  static const char* Options_Vertex_Shader_ES =
  "#version 300 es\n"

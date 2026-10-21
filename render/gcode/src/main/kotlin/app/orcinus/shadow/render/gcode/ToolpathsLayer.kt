@@ -1,5 +1,7 @@
 package app.orcinus.shadow.render.gcode
 
+import android.os.Handler
+import android.os.Looper
 import app.orcinus.shadow.core.model.ScenePath
 import app.orcinus.shadow.core.model.Vector3
 import app.orcinus.shadow.render.scene.LayerBounds
@@ -60,6 +62,12 @@ class ToolpathsLayer private constructor(
     private var appliedVisibleMoves: Pair<Int, Int>? = null
 
     private val mutableView = MutableStateFlow<ToolpathsView?>(null)
+
+    // The view the last frame was drawn from, and the frame of the whole print once the view keeps still.
+    private var drawnView: FloatArray? = null
+    private var drawnProjection: FloatArray? = null
+    private val settler = Handler(Looper.getMainLooper())
+    private val settle = Runnable { synchronized(requests) { onChanged }?.invoke() }
 
     /** What the viewer shows, once it has drawn. */
     val view: StateFlow<ToolpathsView?> = mutableView.asStateFlow()
@@ -147,8 +155,20 @@ class ToolpathsLayer private constructor(
             data = 0L
             synchronized(requests) { dirty = true }
         }
-        if (synchronized(requests) { dirty.also { dirty = false } }) applyRequests()
+        val rangesMoved = synchronized(requests) { dirty.also { dirty = false } } && applyRequests()
+        // While the camera moves, or the layers or the moves shown do, a print of
+        // millions of segments draws one in so many, MOVING_SEGMENTS at most,
+        // which a phone's GPU turns smoothly, where it draws the whole print a
+        // frame a second; the whole print is drawn once the view keeps still.
+        val moving = rangesMoved || !view.contentEquals(drawnView) || !projection.contentEquals(drawnProjection)
+        drawnView = view.copyOf()
+        drawnProjection = projection.copyOf()
+        NativeToolpaths.setSegmentBudget(viewer, if (moving) MOVING_SEGMENTS else 0)
         NativeToolpaths.render(viewer, view, projection)
+        if (moving) {
+            settler.removeCallbacks(settle)
+            settler.postDelayed(settle, SETTLE_MILLIS)
+        }
     }
 
     /** What is requested of the viewer when the GL thread applies it. */
@@ -159,7 +179,9 @@ class ToolpathsLayer private constructor(
         val visibleMoves: Pair<Int, Int>?,
     )
 
-    private fun applyRequests() {
+    /** Applies what is requested; whether the layers or the moves shown changed. */
+    private fun applyRequests(): Boolean {
+        var rangesMoved = false
         if (!loaded) {
             loaded = true
             val first = NativeToolpaths.snapshot(viewer)
@@ -215,6 +237,7 @@ class ToolpathsLayer private constructor(
         if (layers != null && layers != appliedLayerRange) {
             val last = (snapshot.layersZs.size - 1).coerceAtLeast(0)
             NativeToolpaths.setLayersViewRange(viewer, layers.first.coerceIn(0, last), layers.second.coerceIn(0, last))
+            rangesMoved = appliedLayerRange != null
             appliedLayerRange = layers
             appliedVisibleMoves = null
             toggled = true
@@ -222,6 +245,7 @@ class ToolpathsLayer private constructor(
         val moves = requested.visibleMoves
         if (moves != null && (moves != appliedVisibleMoves || toggled)) {
             NativeToolpaths.setViewVisibleRange(viewer, moves.first, moves.second)
+            rangesMoved = rangesMoved || moves != appliedVisibleMoves
             appliedVisibleMoves = moves
         }
         snapshot = NativeToolpaths.snapshot(viewer)
@@ -232,6 +256,7 @@ class ToolpathsLayer private constructor(
         // The widget keeps the data it was last given (set_actual_speed_data()).
         snapshot.speedProfile()?.let { speedProfile = it }
         mutableView.value = snapshot.toView(markerShown).copy(speedProfile = speedProfile)
+        return rangesMoved
     }
 
     /** What the next G-code starts from: the viewer's settings and the slider's span now. */
@@ -254,6 +279,7 @@ class ToolpathsLayer private constructor(
 
     @Synchronized
     override fun release() {
+        settler.removeCallbacks(settle)
         destroyViewer()
         if (data != 0L) {
             NativeToolpaths.destroyData(data)
@@ -275,6 +301,12 @@ class ToolpathsLayer private constructor(
 
     companion object {
         private const val BOUNDS_SIZE = 6
+
+        /** The segments drawn while the view moves: about forty frames a second on a Pixel 8 Pro. */
+        private const val MOVING_SEGMENTS = 130_000
+
+        /** How long the view keeps still before the whole print is drawn. */
+        private const val SETTLE_MILLIS = 250L
 
         /**
          * Reads the toolpaths the engine wrote to [path], which start from what
