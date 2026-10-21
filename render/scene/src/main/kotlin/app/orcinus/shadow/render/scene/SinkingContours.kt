@@ -16,22 +16,23 @@ import kotlin.math.hypot
  * not wholly).
  */
 internal fun sinkingContourBand(vertices: FloatBuffer, cornerCount: Int, world: Affine3): FloatArray {
-    val stride = MeshFiles.FLOATS_PER_CORNER
     val m = world.elements()
-    val points = DoubleArray(cornerCount * 3)
     var minZ = Double.MAX_VALUE
     var maxZ = -Double.MAX_VALUE
-    for (corner in 0 until cornerCount) {
-        val offset = corner * stride
-        val x = vertices.get(offset).toDouble()
-        val y = vertices.get(offset + 1).toDouble()
-        val z = vertices.get(offset + 2).toDouble()
-        for (axis in 0 until 3) points[corner * 3 + axis] = m[axis] * x + m[4 + axis] * y + m[8 + axis] * z + m[12 + axis]
-        minZ = minOf(minZ, points[corner * 3 + 2])
-        maxZ = maxOf(maxZ, points[corner * 3 + 2])
+    forEachCorner(vertices, cornerCount) { _, x, y, z ->
+        val height = m[2] * x + m[6] * y + m[10] * z + m[14]
+        minZ = minOf(minZ, height)
+        maxZ = maxOf(maxZ, height)
     }
     if (!(minZ < SINKING_Z_THRESHOLD && maxZ >= SINKING_Z_THRESHOLD)) return FloatArray(0)
-    return band(contours(sliceAtZero(points, cornerCount)))
+    // The corners in the world a triangle at a time: a large mesh's would not fit in the Java heap at once.
+    val segments = ArrayList<DoubleArray>()
+    val triangle = DoubleArray(9)
+    forEachCorner(vertices, cornerCount) { corner, x, y, z ->
+        for (axis in 0 until 3) triangle[corner % 3 * 3 + axis] = m[axis] * x + m[4 + axis] * y + m[8 + axis] * z + m[12 + axis]
+        if (corner % 3 == 2) sliceAtZero(triangle, segments)
+    }
+    return band(contours(segments))
 }
 
 /**
@@ -53,33 +54,30 @@ private const val MITER_LIMIT = 3.0
 private const val SINKING_Z_THRESHOLD = -0.001
 
 /**
- * The segments, x1, y1, x2, y2 each, where the triangles of [points] cross
- * z = 0. A point at z = 0 counts as above, so no triangle touches the plane
- * without crossing it; where an edge crosses is found from its lower end, so
- * both triangles of an edge find the very same point.
+ * The segment, x1, y1, x2, y2, where the triangle of [points] (x, y, z of its
+ * three corners) crosses z = 0, added to [segments]. A point at z = 0 counts
+ * as above, so no triangle touches the plane without crossing it; where an
+ * edge crosses is found from its lower end, so both triangles of an edge find
+ * the very same point.
  */
-private fun sliceAtZero(points: DoubleArray, cornerCount: Int): List<DoubleArray> {
-    val segments = ArrayList<DoubleArray>()
+private fun sliceAtZero(points: DoubleArray, segments: MutableList<DoubleArray>) {
     val crossing = DoubleArray(4)
-    for (triangle in 0 until cornerCount / 3) {
-        var found = 0
-        for (edge in 0 until 3) {
-            val a = (triangle * 3 + edge) * 3
-            val b = (triangle * 3 + (edge + 1) % 3) * 3
-            val aBelow = points[a + 2] < 0.0
-            if (aBelow == points[b + 2] < 0.0) continue
-            val low = if (aBelow) a else b
-            val high = if (aBelow) b else a
-            val t = -points[low + 2] / (points[high + 2] - points[low + 2])
-            if (found < 2) {
-                crossing[found * 2] = points[low] + (points[high] - points[low]) * t
-                crossing[found * 2 + 1] = points[low + 1] + (points[high + 1] - points[low + 1]) * t
-            }
-            found++
+    var found = 0
+    for (edge in 0 until 3) {
+        val a = edge * 3
+        val b = (edge + 1) % 3 * 3
+        val aBelow = points[a + 2] < 0.0
+        if (aBelow == points[b + 2] < 0.0) continue
+        val low = if (aBelow) a else b
+        val high = if (aBelow) b else a
+        val t = -points[low + 2] / (points[high + 2] - points[low + 2])
+        if (found < 2) {
+            crossing[found * 2] = points[low] + (points[high] - points[low]) * t
+            crossing[found * 2 + 1] = points[low + 1] + (points[high + 1] - points[low + 1]) * t
         }
-        if (found == 2) segments += crossing.copyOf()
+        found++
     }
-    return segments
+    if (found == 2) segments += crossing
 }
 
 /** The segments joined end to end into outlines, closed where they come round, as slice_mesh() chains them. */

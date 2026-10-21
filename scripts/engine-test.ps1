@@ -1,8 +1,9 @@
 ﻿[CmdletBinding()]
 param(
     # Catch2 suites built by scripts/engine.ps1: OrcaSlicer's libslic3r_tests and
-    # fff_print_tests, and the app facade's orca_engine_adapter_tests.
-    [string[]] $Suite = @('libslic3r_tests', 'fff_print_tests', 'orca_engine_adapter_tests'),
+    # fff_print_tests, the app facade's orca_engine_adapter_tests, and the 3D
+    # view's orcinus_mesh_tree_tests.
+    [string[]] $Suite = @('libslic3r_tests', 'fff_print_tests', 'orca_engine_adapter_tests', 'orcinus_mesh_tree_tests'),
     # Catch2 test spec, for example "[GCode]" or "~[Slow]".
     [string] $Filter = '',
     # adb serial when several devices are connected.
@@ -13,7 +14,7 @@ $ErrorActionPreference = 'Stop'
 # "powershell -File" passes "a,b" as one string.
 $Suite = @($Suite | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 foreach ($name in $Suite) {
-    if ($name -notin 'libslic3r_tests', 'fff_print_tests', 'orca_engine_adapter_tests') {
+    if ($name -notin 'libslic3r_tests', 'fff_print_tests', 'orca_engine_adapter_tests', 'orcinus_mesh_tree_tests') {
         throw "Unknown suite $name"
     }
 }

@@ -108,14 +108,10 @@ internal fun heightRangeCursorFrame(cursor: PaintCursor, hit: Vec3, box: Box3, v
  * counts as above, so no triangle only touches it.
  */
 private fun contourAt(mesh: MeshData, world: Affine3, z: Double, out: MutableList<Float>) {
-    val stride = MeshFiles.FLOATS_PER_CORNER
-    val vertices = mesh.vertices
     val corners = arrayOfNulls<Vec3>(3)
-    for (triangle in 0 until mesh.cornerCount / 3) {
-        for (corner in 0 until 3) {
-            val at = (triangle * 3 + corner) * stride
-            corners[corner] = world.transformPoint(Vec3(vertices.get(at).toDouble(), vertices.get(at + 1).toDouble(), vertices.get(at + 2).toDouble()))
-        }
+    mesh.forEachCorner { corner, x, y, cornerZ ->
+        corners[corner % 3] = world.transformPoint(Vec3(x.toDouble(), y.toDouble(), cornerZ.toDouble()))
+        if (corner % 3 != 2) return@forEachCorner
         // A triangle crossing the plane crosses it on two of its edges.
         for (edge in 0 until 3) {
             val a = corners[edge]!!

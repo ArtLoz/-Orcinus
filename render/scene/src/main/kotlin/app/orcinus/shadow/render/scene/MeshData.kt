@@ -24,19 +24,60 @@ internal class MeshData(
     val cornerCount: Int,
     /** Bounds of the mesh in its own coordinates. */
     val bounds: Box3,
-)
+) {
+    /**
+     * The tree a large mesh's rays find its triangles with, built the first
+     * time it is asked for; null for a small mesh, whose triangles are tried
+     * one by one.
+     */
+    val tree: MeshTree? by lazy { if (cornerCount / 3 >= MeshTree.MIN_TRIANGLES) MeshTree.of(this) else null }
+}
+
+/**
+ * Every corner's position of the [cornerCount] corners in [vertices], read
+ * [CORNERS_PER_READ] at a time: Android reads each number of a direct buffer
+ * with a native call, and a run of them with one.
+ */
+internal inline fun forEachCorner(vertices: FloatBuffer, cornerCount: Int, action: (corner: Int, x: Float, y: Float, z: Float) -> Unit) {
+    val source = vertices.duplicate()
+    val stride = MeshFiles.FLOATS_PER_CORNER
+    val chunk = FloatArray(minOf(cornerCount, CORNERS_PER_READ) * stride)
+    var first = 0
+    while (first < cornerCount) {
+        val count = minOf(CORNERS_PER_READ, cornerCount - first)
+        source.position(first * stride)
+        source.get(chunk, 0, count * stride)
+        for (local in 0 until count) {
+            val at = local * stride
+            action(first + local, chunk[at], chunk[at + 1], chunk[at + 2])
+        }
+        first += count
+    }
+}
+
+internal inline fun MeshData.forEachCorner(action: (corner: Int, x: Float, y: Float, z: Float) -> Unit) = forEachCorner(vertices, cornerCount, action)
+
+internal const val CORNERS_PER_READ = 1 shl 14
 
 /** The three edges of every triangle of [mesh] as GL_LINES segments: x, y, z per end. */
 internal fun triangleEdges(mesh: MeshData): FloatBuffer {
-    val vertices = mesh.vertices
-    val triangles = mesh.cornerCount / 3
-    val edges = nativeBuffer(triangles * 18 * Float.SIZE_BYTES).asFloatBuffer()
-    for (triangle in 0 until triangles) {
-        for (edge in 0 until 3) {
-            for (end in 0 until 2) {
-                val corner = (triangle * 3 + (edge + end) % 3) * MeshFiles.FLOATS_PER_CORNER
-                edges.put(vertices.get(corner)).put(vertices.get(corner + 1)).put(vertices.get(corner + 2))
+    val edges = nativeBuffer(mesh.cornerCount / 3 * 18 * Float.SIZE_BYTES).asFloatBuffer()
+    val triangle = FloatArray(9)
+    val segments = FloatArray(18)
+    mesh.forEachCorner { corner, x, y, z ->
+        val at = corner % 3 * 3
+        triangle[at] = x
+        triangle[at + 1] = y
+        triangle[at + 2] = z
+        if (corner % 3 == 2) {
+            var out = 0
+            for (edge in 0 until 3) {
+                for (end in 0 until 2) {
+                    val from = (edge + end) % 3 * 3
+                    for (axis in 0 until 3) segments[out++] = triangle[from + axis]
+                }
             }
+            edges.put(segments)
         }
     }
     edges.flip()
@@ -62,8 +103,10 @@ private const val SHARED_MEMORY_MIN_BYTES = 1 shl 20
 /** The corners of [this] as GL_TRIANGLES points: x, y, z per corner. */
 internal fun MeshData.cornerPositions(): FloatArray {
     val positions = FloatArray(cornerCount * 3)
-    for (corner in 0 until cornerCount) {
-        for (axis in 0 until 3) positions[corner * 3 + axis] = vertices.get(corner * MeshFiles.FLOATS_PER_CORNER + axis)
+    forEachCorner { corner, x, y, z ->
+        positions[corner * 3] = x
+        positions[corner * 3 + 1] = y
+        positions[corner * 3 + 2] = z
     }
     return positions
 }
@@ -97,15 +140,16 @@ internal object MeshFiles {
         val expected = HEADER_BYTES + 12L * vertexCount + 12L * triangleCount
         if (data.limit() < expected) throw IOException("Mesh file is truncated")
 
-        val positions = data.slice().order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
+        // The positions are read whole, which the triangles pick from in any order.
+        val positions = FloatArray(vertexCount * 3).also { data.slice().order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(it) }
         data.position(HEADER_BYTES + 12 * vertexCount)
         val indices = data.slice().order(ByteOrder.LITTLE_ENDIAN).asIntBuffer()
-        return build(positions, indices, vertexCount, triangleCount, smooth)
+        return build(positions, indices, triangleCount, smooth)
     }
 
     /** A mesh built in code, as indexed_triangle_set: x, y, z per vertex and three vertex indices per triangle. */
     fun fromIndexed(positions: FloatArray, indices: IntArray, smooth: Boolean = false): MeshData =
-        build(FloatBuffer.wrap(positions), IntBuffer.wrap(indices), positions.size / 3, indices.size / 3, smooth)
+        build(positions, IntBuffer.wrap(indices), indices.size / 3, smooth)
 
     /**
      * GLModel::Geometry of the EVertexLayout::P3N3 layout, as smooth_sphere()
@@ -128,70 +172,79 @@ internal object MeshFiles {
      * GLModel::init_from(const indexed_triangle_set&): a vertex per corner,
      * with the face's normal, or in the realistic view with "Smooth normals"
      * ([smooth]) the corner's normal of igl::per_corner_normals() at 5 degrees.
+     * The triangles are read and the corners written [TRIANGLES_PER_READ] at a
+     * time: Android reads and writes each number of a direct buffer with a
+     * native call, and a run of them with one.
      */
-    private fun build(positions: FloatBuffer, indices: IntBuffer, vertexCount: Int, triangleCount: Int, smooth: Boolean): MeshData {
-        for (index in 0 until triangleCount * 3) {
-            val vertex = indices.get(index)
-            if (vertex < 0 || vertex >= vertexCount) throw IOException("Mesh file is corrupt")
+    private fun build(positions: FloatArray, indices: IntBuffer, triangleCount: Int, smooth: Boolean): MeshData {
+        val vertexCount = positions.size / 3
+        val run = IntArray(minOf(triangleCount, TRIANGLES_PER_READ) * 3)
+        forEachTriangleRun(indices, triangleCount, run) { _, count ->
+            for (k in 0 until count * 3) {
+                if (run[k] < 0 || run[k] >= vertexCount) throw IOException("Mesh file is corrupt")
+            }
         }
         val smoothNormals = if (smooth) cornerNormals(positions, indices, vertexCount, triangleCount, SMOOTH_CORNER_THRESHOLD_DEGREES) else null
         val cornerCount = triangleCount * 3
         val vertices = nativeBuffer(cornerCount * FLOATS_PER_CORNER * Float.SIZE_BYTES).asFloatBuffer()
+        val corners = FloatArray(run.size * FLOATS_PER_CORNER)
+        val normals = FloatArray(if (smoothNormals != null) run.size * 3 else 0)
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var minZ = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE
         var maxY = -Float.MAX_VALUE
         var maxZ = -Float.MAX_VALUE
-        val corner = IntArray(3)
-        for (triangle in 0 until triangleCount) {
-            for (k in 0 until 3) {
-                val index = indices.get(triangle * 3 + k)
-                if (index < 0 || index >= vertexCount) throw IOException("Mesh file is corrupt")
-                corner[k] = index * 3
-            }
-            val x0 = positions.get(corner[0])
-            val y0 = positions.get(corner[0] + 1)
-            val z0 = positions.get(corner[0] + 2)
-            val x1 = positions.get(corner[1])
-            val y1 = positions.get(corner[1] + 1)
-            val z1 = positions.get(corner[1] + 2)
-            val x2 = positions.get(corner[2])
-            val y2 = positions.get(corner[2] + 1)
-            val z2 = positions.get(corner[2] + 2)
-            // face_normal_normalized(): (v1 - v0) x (v2 - v1), normalized.
-            val ax = x1 - x0
-            val ay = y1 - y0
-            val az = z1 - z0
-            val bx = x2 - x1
-            val by = y2 - y1
-            val bz = z2 - z1
-            var nx = ay * bz - az * by
-            var ny = az * bx - ax * bz
-            var nz = ax * by - ay * bx
-            val length = sqrt(nx * nx + ny * ny + nz * nz)
-            if (length > 0f) {
-                nx /= length
-                ny /= length
-                nz /= length
-            }
-            for (k in 0 until 3) {
-                val x = positions.get(corner[k])
-                val y = positions.get(corner[k] + 1)
-                val z = positions.get(corner[k] + 2)
-                if (smoothNormals != null) {
-                    val normal = (triangle * 3 + k) * 3
-                    vertices.put(x).put(y).put(z).put(smoothNormals.get(normal)).put(smoothNormals.get(normal + 1)).put(smoothNormals.get(normal + 2))
-                } else {
-                    vertices.put(x).put(y).put(z).put(nx).put(ny).put(nz)
+        forEachTriangleRun(indices, triangleCount, run) { first, count ->
+            smoothNormals?.duplicate()?.apply { position(first * 9) }?.get(normals, 0, count * 9)
+            var out = 0
+            for (local in 0 until count) {
+                val c0 = run[local * 3] * 3
+                val c1 = run[local * 3 + 1] * 3
+                val c2 = run[local * 3 + 2] * 3
+                // face_normal_normalized(): (v1 - v0) x (v2 - v1), normalized.
+                val ax = positions[c1] - positions[c0]
+                val ay = positions[c1 + 1] - positions[c0 + 1]
+                val az = positions[c1 + 2] - positions[c0 + 2]
+                val bx = positions[c2] - positions[c1]
+                val by = positions[c2 + 1] - positions[c1 + 1]
+                val bz = positions[c2 + 2] - positions[c1 + 2]
+                var nx = ay * bz - az * by
+                var ny = az * bx - ax * bz
+                var nz = ax * by - ay * bx
+                val length = sqrt(nx * nx + ny * ny + nz * nz)
+                if (length > 0f) {
+                    nx /= length
+                    ny /= length
+                    nz /= length
                 }
-                if (x < minX) minX = x
-                if (y < minY) minY = y
-                if (z < minZ) minZ = z
-                if (x > maxX) maxX = x
-                if (y > maxY) maxY = y
-                if (z > maxZ) maxZ = z
+                for (k in 0 until 3) {
+                    val at = run[local * 3 + k] * 3
+                    val x = positions[at]
+                    val y = positions[at + 1]
+                    val z = positions[at + 2]
+                    corners[out++] = x
+                    corners[out++] = y
+                    corners[out++] = z
+                    if (smoothNormals != null) {
+                        val normal = (local * 3 + k) * 3
+                        corners[out++] = normals[normal]
+                        corners[out++] = normals[normal + 1]
+                        corners[out++] = normals[normal + 2]
+                    } else {
+                        corners[out++] = nx
+                        corners[out++] = ny
+                        corners[out++] = nz
+                    }
+                    if (x < minX) minX = x
+                    if (y < minY) minY = y
+                    if (z < minZ) minZ = z
+                    if (x > maxX) maxX = x
+                    if (y > maxY) maxY = y
+                    if (z > maxZ) maxZ = z
+                }
             }
+            vertices.put(corners, 0, out)
         }
         vertices.flip()
         val bounds = if (cornerCount == 0) {
@@ -202,6 +255,19 @@ internal object MeshFiles {
         return MeshData(vertices, cornerCount, bounds)
     }
 
+    /** The vertex indices of [triangleCount] triangles, [run] (three a triangle) at a time from the first. */
+    private inline fun forEachTriangleRun(indices: IntBuffer, triangleCount: Int, run: IntArray, action: (first: Int, count: Int) -> Unit) {
+        val source = indices.duplicate()
+        var first = 0
+        while (first < triangleCount) {
+            val count = minOf(run.size / 3, triangleCount - first)
+            source.position(first * 3)
+            source.get(run, 0, count * 3)
+            action(first, count)
+            first += count
+        }
+    }
+
     /**
      * igl::per_corner_normals(V, F, corner_threshold_degrees, CN): every
      * corner's normal is the area-weighted average of the unit normals of the
@@ -209,7 +275,7 @@ internal object MeshFiles {
      * threshold, in double precision as GLModel hands it the mesh. The arrays
      * of a large mesh would not fit in the Java heap, so they are native buffers.
      */
-    private fun cornerNormals(positions: FloatBuffer, indices: IntBuffer, vertexCount: Int, triangleCount: Int, thresholdDegrees: Double): FloatBuffer {
+    private fun cornerNormals(positions: FloatArray, indices: IntBuffer, vertexCount: Int, triangleCount: Int, thresholdDegrees: Double): FloatBuffer {
         // unit normals and face areas
         val faceNormals = nativeBuffer(triangleCount * 3 * Double.SIZE_BYTES).asDoubleBuffer()
         val faceAreas = nativeBuffer(triangleCount * Double.SIZE_BYTES).asDoubleBuffer()
@@ -217,12 +283,12 @@ internal object MeshFiles {
             val v0 = indices.get(face * 3) * 3
             val v1 = indices.get(face * 3 + 1) * 3
             val v2 = indices.get(face * 3 + 2) * 3
-            val ax = positions.get(v1).toDouble() - positions.get(v0)
-            val ay = positions.get(v1 + 1).toDouble() - positions.get(v0 + 1)
-            val az = positions.get(v1 + 2).toDouble() - positions.get(v0 + 2)
-            val bx = positions.get(v2).toDouble() - positions.get(v0)
-            val by = positions.get(v2 + 1).toDouble() - positions.get(v0 + 1)
-            val bz = positions.get(v2 + 2).toDouble() - positions.get(v0 + 2)
+            val ax = positions[v1].toDouble() - positions[v0]
+            val ay = positions[v1 + 1].toDouble() - positions[v0 + 1]
+            val az = positions[v1 + 2].toDouble() - positions[v0 + 2]
+            val bx = positions[v2].toDouble() - positions[v0]
+            val by = positions[v2 + 1].toDouble() - positions[v0 + 1]
+            val bz = positions[v2 + 2].toDouble() - positions[v0 + 2]
             val nx = ay * bz - az * by
             val ny = az * bx - ax * bz
             val nz = ax * by - ay * bx
@@ -290,4 +356,6 @@ internal object MeshFiles {
 
     /** GLModel::init_from(): the corner threshold it gives igl::per_corner_normals(). */
     private const val SMOOTH_CORNER_THRESHOLD_DEGREES = 5.0
+
+    private const val TRIANGLES_PER_READ = 1 shl 14
 }

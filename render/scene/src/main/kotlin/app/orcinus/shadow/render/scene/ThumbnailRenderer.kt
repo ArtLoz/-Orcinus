@@ -470,18 +470,17 @@ class ThumbnailRenderer(context: Context) {
 
         /** GLVolume::transformed_convex_hull_bounding_box(): the bounds of the volume's vertices in the world. */
         fun hullBox(volume: SceneObject): Box3 {
-            val vertices = volume.mesh.vertices.duplicate()
-            var min = Vec3(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE)
-            var max = Vec3(-Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE)
-            for (corner in 0 until volume.mesh.cornerCount) {
-                val offset = corner * MeshFiles.FLOATS_PER_CORNER
-                val point = volume.world.transformPoint(
-                    Vec3(vertices.get(offset).toDouble(), vertices.get(offset + 1).toDouble(), vertices.get(offset + 2).toDouble()),
-                )
-                min = Vec3(minOf(min.x, point.x), minOf(min.y, point.y), minOf(min.z, point.z))
-                max = Vec3(maxOf(max.x, point.x), maxOf(max.y, point.y), maxOf(max.z, point.z))
+            val world = volume.world
+            val min = DoubleArray(3) { Double.MAX_VALUE }
+            val max = DoubleArray(3) { -Double.MAX_VALUE }
+            volume.mesh.forEachCorner { _, x, y, z ->
+                for (row in 0 until 3) {
+                    val value = world[row, 0] * x + world[row, 1] * y + world[row, 2] * z + world[row, 3]
+                    min[row] = minOf(min[row], value)
+                    max[row] = maxOf(max[row], value)
+                }
             }
-            return Box3(min, max)
+            return Box3(Vec3(min[0], min[1], min[2]), Vec3(max[0], max[1], max[2]))
         }
 
         fun Box3.contains(other: Box3) =

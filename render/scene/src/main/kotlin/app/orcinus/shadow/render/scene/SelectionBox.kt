@@ -30,23 +30,23 @@ internal class MeshExtents {
         val linear = (0 until 3).flatMap { row -> (0 until 3).map { column -> transform[row, column] } }
         val box = boxes.getOrPut(mesh to linear) {
             if (mesh.cornerCount == 0) return@getOrPut Box3(Vec3.ZERO, Vec3.ZERO)
-            val linearPart = transform.withTranslation(Vec3.ZERO)
-            val vertices = mesh.vertices
+            val m = linear.toDoubleArray()
             var minX = Double.MAX_VALUE
             var minY = Double.MAX_VALUE
             var minZ = Double.MAX_VALUE
             var maxX = -Double.MAX_VALUE
             var maxY = -Double.MAX_VALUE
             var maxZ = -Double.MAX_VALUE
-            for (corner in 0 until mesh.cornerCount) {
-                val offset = corner * MeshFiles.FLOATS_PER_CORNER
-                val point = linearPart.transformPoint(Vec3(vertices.get(offset).toDouble(), vertices.get(offset + 1).toDouble(), vertices.get(offset + 2).toDouble()))
-                minX = minOf(minX, point.x)
-                minY = minOf(minY, point.y)
-                minZ = minOf(minZ, point.z)
-                maxX = maxOf(maxX, point.x)
-                maxY = maxOf(maxY, point.y)
-                maxZ = maxOf(maxZ, point.z)
+            mesh.forEachCorner { _, x, y, z ->
+                val pointX = m[0] * x + m[1] * y + m[2] * z
+                val pointY = m[3] * x + m[4] * y + m[5] * z
+                val pointZ = m[6] * x + m[7] * y + m[8] * z
+                minX = minOf(minX, pointX)
+                minY = minOf(minY, pointY)
+                minZ = minOf(minZ, pointZ)
+                maxX = maxOf(maxX, pointX)
+                maxY = maxOf(maxY, pointY)
+                maxZ = maxOf(maxZ, pointZ)
             }
             Box3(Vec3(minX, minY, minZ), Vec3(maxX, maxY, maxZ))
         }

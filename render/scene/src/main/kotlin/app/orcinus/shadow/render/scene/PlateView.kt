@@ -564,6 +564,8 @@ fun PlateView(
                 }
             }
             controller.setObjects(loaded, inAssembly, source = objects)
+            // The trees a tap finds large meshes' triangles with are built now, not on the tap.
+            withContext(Dispatchers.Default) { loaded.forEach { it.mesh.tree } }
         }
 
         // GLGizmoCut3D: the outline and the section of the plane, which the
@@ -2914,11 +2916,7 @@ internal class PlateViewController(private val surface: GLSurfaceView, private v
         groupSphereCache?.takeIf { it.first == key }?.let { return it.second }
         val points = ArrayList<Vec3>()
         for (volume in volumes) {
-            val vertices = volume.mesh.vertices
-            for (corner in 0 until volume.mesh.cornerCount) {
-                val base = corner * MeshFiles.FLOATS_PER_CORNER
-                points += volume.world.transformPoint(Vec3(vertices.get(base).toDouble(), vertices.get(base + 1).toDouble(), vertices.get(base + 2).toDouble()))
-            }
+            volume.mesh.forEachCorner { _, x, y, z -> points += volume.world.transformPoint(Vec3(x.toDouble(), y.toDouble(), z.toDouble())) }
         }
         val sphere = MinimalSphere.of(points)
         groupSphereCache = key to sphere

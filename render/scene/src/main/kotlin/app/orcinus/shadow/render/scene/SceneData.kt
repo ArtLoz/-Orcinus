@@ -194,12 +194,10 @@ internal class SceneObject(
     fun minZ(): Double {
         val row = world.linearRow(2)
         val offset = world.translation().z
-        val vertices = mesh.vertices
         var lowest = Double.MAX_VALUE
-        for (corner in 0 until mesh.cornerCount) {
-            val index = corner * MeshFiles.FLOATS_PER_CORNER
-            val z = row.x * vertices.get(index) + row.y * vertices.get(index + 1) + row.z * vertices.get(index + 2) + offset
-            if (z < lowest) lowest = z
+        mesh.forEachCorner { _, x, y, z ->
+            val height = row.x * x + row.y * y + row.z * z + offset
+            if (height < lowest) lowest = height
         }
         return lowest
     }
@@ -215,18 +213,16 @@ internal class SceneObject(
      */
     fun hasCornerInside(clip: DoubleArray, width: Int, height: Int, left: Double, top: Double, right: Double, bottom: Double): Boolean {
         val m = Matrix4.multiply(clip, world.elements())
-        val vertices = mesh.vertices
-        val stride = MeshFiles.FLOATS_PER_CORNER
-        for (corner in 0 until mesh.cornerCount) {
-            val offset = corner * stride
-            val x = vertices.get(offset).toDouble()
-            val y = vertices.get(offset + 1).toDouble()
-            val z = vertices.get(offset + 2).toDouble()
+        mesh.forEachCorner { _, cornerX, cornerY, cornerZ ->
+            val x = cornerX.toDouble()
+            val y = cornerY.toDouble()
+            val z = cornerZ.toDouble()
             val w = m[3] * x + m[7] * y + m[11] * z + m[15]
-            if (w <= 0.0) continue
-            val screenX = ((m[0] * x + m[4] * y + m[8] * z + m[12]) / w + 1.0) * 0.5 * width
-            val screenY = height - ((m[1] * x + m[5] * y + m[9] * z + m[13]) / w + 1.0) * 0.5 * height
-            if (screenX in left..right && screenY in top..bottom) return true
+            if (w > 0.0) {
+                val screenX = ((m[0] * x + m[4] * y + m[8] * z + m[12]) / w + 1.0) * 0.5 * width
+                val screenY = height - ((m[1] * x + m[5] * y + m[9] * z + m[13]) / w + 1.0) * 0.5 * height
+                if (screenX in left..right && screenY in top..bottom) return true
+            }
         }
         return false
     }
@@ -235,7 +231,19 @@ internal class SceneObject(
         val toObject = world.inverse()
         val origin = toObject.transformPoint(ray.a)
         val direction = toObject.transformPoint(ray.b) - origin
+        val (nearest, _) = firstHit(origin, direction) ?: return null
+        return world.transformPoint(origin + direction * nearest)
+    }
+
+    /**
+     * The nearest triangle the ray from [origin] along [direction] enters ahead
+     * of it, in the mesh's coordinates: the parameter along [direction] and the
+     * triangle, the first of the triangles as near.
+     */
+    private fun firstHit(origin: Vec3, direction: Vec3): Pair<Double, Int>? {
+        mesh.tree?.let { return it.firstHit(origin, direction) }
         var nearest = Double.MAX_VALUE
+        var nearestTriangle = -1
         val vertices = mesh.vertices
         val stride = MeshFiles.FLOATS_PER_CORNER
         for (corner in 0 until mesh.cornerCount step 3) {
@@ -246,9 +254,12 @@ internal class SceneObject(
                 vertexAt(vertices, (corner + 1) * stride),
                 vertexAt(vertices, (corner + 2) * stride),
             ) ?: continue
-            if (t < nearest) nearest = t
+            if (t < nearest) {
+                nearest = t
+                nearestTriangle = corner / 3
+            }
         }
-        return if (nearest == Double.MAX_VALUE) null else world.transformPoint(origin + direction * nearest)
+        return if (nearestTriangle < 0) null else nearest to nearestTriangle
     }
 
     /**
@@ -261,17 +272,22 @@ internal class SceneObject(
         val toObject = world.inverse()
         val origin = toObject.transformPoint(ray.a)
         val direction = toObject.transformPoint(ray.b) - origin
-        val vertices = mesh.vertices
-        val stride = MeshFiles.FLOATS_PER_CORNER
         val hits = ArrayList<Double>()
-        for (corner in 0 until mesh.cornerCount step 3) {
-            rayTriangle(
-                origin,
-                direction,
-                vertexAt(vertices, corner * stride),
-                vertexAt(vertices, (corner + 1) * stride),
-                vertexAt(vertices, (corner + 2) * stride),
-            )?.let(hits::add)
+        val tree = mesh.tree
+        if (tree != null) {
+            tree.allHits(origin, direction).toCollection(hits)
+        } else {
+            val vertices = mesh.vertices
+            val stride = MeshFiles.FLOATS_PER_CORNER
+            for (corner in 0 until mesh.cornerCount step 3) {
+                rayTriangle(
+                    origin,
+                    direction,
+                    vertexAt(vertices, corner * stride),
+                    vertexAt(vertices, (corner + 1) * stride),
+                    vertexAt(vertices, (corner + 2) * stride),
+                )?.let(hits::add)
+            }
         }
         hits.sort()
         val distinct = hits.filterIndexed { index, t -> index == 0 || t - hits[index - 1] >= HIT_EPSILON }
@@ -290,21 +306,11 @@ internal class SceneObject(
         val toObject = world.inverse()
         val origin = toObject.transformPoint(ray.a)
         val direction = toObject.transformPoint(ray.b) - origin
-        var nearest = Double.MAX_VALUE
-        var triangle: Triple<Vec3, Vec3, Vec3>? = null
-        val vertices = mesh.vertices
+        val (nearest, triangle) = firstHit(origin, direction) ?: return null
         val stride = MeshFiles.FLOATS_PER_CORNER
-        for (corner in 0 until mesh.cornerCount step 3) {
-            val v0 = vertexAt(vertices, corner * stride)
-            val v1 = vertexAt(vertices, (corner + 1) * stride)
-            val v2 = vertexAt(vertices, (corner + 2) * stride)
-            val t = rayTriangle(origin, direction, v0, v1, v2) ?: continue
-            if (t < nearest) {
-                nearest = t
-                triangle = Triple(v0, v1, v2)
-            }
-        }
-        val (v0, v1, v2) = triangle ?: return null
+        val v0 = vertexAt(mesh.vertices, triangle * 3 * stride)
+        val v1 = vertexAt(mesh.vertices, (triangle * 3 + 1) * stride)
+        val v2 = vertexAt(mesh.vertices, (triangle * 3 + 2) * stride)
         // NOTE: Anisotropic scale of transformation cause change of normal
         val w0 = world.transformPoint(v0)
         val normal = (world.transformPoint(v1) - w0).cross(world.transformPoint(v2) - w0).normalized()
@@ -313,9 +319,9 @@ internal class SceneObject(
 
     /** The mesh's points in world coordinates, which CameraUtils::create_hull2d() projects. */
     fun worldPoints(): List<Vec3> {
-        val vertices = mesh.vertices
-        val stride = MeshFiles.FLOATS_PER_CORNER
-        return (0 until mesh.cornerCount).map { corner -> world.transformPoint(vertexAt(vertices, corner * stride)) }
+        val points = ArrayList<Vec3>(mesh.cornerCount)
+        mesh.forEachCorner { _, x, y, z -> points += world.transformPoint(Vec3(x.toDouble(), y.toDouble(), z.toDouble())) }
+        return points
     }
 
     private fun vertexAt(vertices: FloatBuffer, offset: Int) =

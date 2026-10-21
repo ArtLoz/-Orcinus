@@ -251,9 +251,10 @@ find_library(gles3_library GLESv3 REQUIRED)
 target_link_libraries(libvgcode PUBLIC ${egl_library} ${gles3_library})
 
 # ---------------------------------------------------------------------------
-# JNI libraries of the Android app (:render:gcode and :slicing:native).
+# JNI libraries of the Android app (:render:gcode, :render:scene and :slicing:native).
 # ---------------------------------------------------------------------------
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../render/gcode/src/main/cpp" "${CMAKE_CURRENT_BINARY_DIR}/toolpaths")
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../render/scene/src/main/cpp" "${CMAKE_CURRENT_BINARY_DIR}/scene")
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../slicing/native/src/main/cpp" "${CMAKE_CURRENT_BINARY_DIR}/jni")
 
 # ---------------------------------------------------------------------------
@@ -281,6 +282,12 @@ if(ENGINE_BUILD_TESTS)
     target_link_libraries(orca_engine_adapter_tests PRIVATE orca_engine_adapter orcinus_toolpaths_file boost_libs Catch2::Catch2WithMain)
     target_compile_definitions(orca_engine_adapter_tests PRIVATE ENGINE_DEVICE_TEST_DIR="${ENGINE_DEVICE_TEST_DIR}")
     set_target_properties(orca_engine_adapter_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tests/orca_engine_adapter")
+
+    # The 3D view's tree of large meshes against trying every triangle.
+    add_executable(orcinus_mesh_tree_tests "${CMAKE_CURRENT_LIST_DIR}/../render/scene/src/test/cpp/mesh_tree_tests.cpp")
+    target_link_libraries(orcinus_mesh_tree_tests PRIVATE orcinus_mesh_tree Catch2::Catch2WithMain)
+    target_compile_options(orcinus_mesh_tree_tests PRIVATE -ffp-contract=off)
+    set_target_properties(orcinus_mesh_tree_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tests/orcinus_mesh_tree")
 
     # Slices one model through the facade for the comparison with desktop OrcaSlicer.
     add_executable(orca_engine_slice "${CMAKE_CURRENT_LIST_DIR}/../slicing/native/src/test/cpp/orca_engine_slice.cpp")
