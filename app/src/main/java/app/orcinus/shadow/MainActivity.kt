@@ -92,6 +92,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val container = (application as OrcinusApplication).container
+        // The profiles load while the first screen is laid out; the UI waits for them anyway.
+        container.startEngineEarly()
         keepSplashWhileEngineStarts(splash, container)
         // A window built again keeps the files it took before.
         if (savedInstanceState == null) takeDocuments(intent)

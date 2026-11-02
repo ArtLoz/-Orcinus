@@ -171,6 +171,8 @@ import kotlinx.coroutines.withContext
  * process. The first call binds to the service. When the engine process dies,
  * running jobs end with [SliceFailureCode.ENGINE_CRASHED] and a new process
  * starts at once; it is told the plate selected before any call reaches it.
+ * When Android refuses to bind, calls end as they do when the process dies,
+ * and the next call binds again.
  */
 class RemoteSlicerEngine(
     context: Context,
@@ -1600,14 +1602,18 @@ class RemoteSlicerEngine(
         request: SliceRequest,
         progressListener: SliceProgressListener,
     ): SliceOutcome {
-        val service = service()
-        val outcome = CompletableDeferred<SliceOutcome>()
         val crashed = SliceOutcome.Failure(
             jobId = request.jobId,
             code = SliceFailureCode.ENGINE_CRASHED,
             message = PROCESS_DIED,
             recoverable = true,
         )
+        val service = try {
+            service()
+        } catch (_: RemoteException) {
+            return crashed
+        }
+        val outcome = CompletableDeferred<SliceOutcome>()
         val callback = object : ISliceCallback.Stub() {
             override fun onProgress(jobId: String, fraction: Float, stage: String, detail: String?) {
                 progressListener.onProgress(SliceProgress(SliceJobId(jobId), fraction, SliceStage.valueOf(stage), detail))
@@ -1652,7 +1658,7 @@ class RemoteSlicerEngine(
         // Reaching the service tells it the language.
         try {
             service()
-        } catch (_: IllegalStateException) {
+        } catch (_: RemoteException) {
             // Not bound: the next call tells the language.
         }
     }
@@ -1665,7 +1671,7 @@ class RemoteSlicerEngine(
         // Reaching the service tells it the plate.
         try {
             service()
-        } catch (_: IllegalStateException) {
+        } catch (_: RemoteException) {
             // Not bound: the next call tells the plate.
         }
     }
@@ -1730,7 +1736,10 @@ class RemoteSlicerEngine(
         if (!applicationContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
             applicationContext.unbindService(connection)
             connected = null
-            deferred.completeExceptionally(IllegalStateException("Cannot bind ${serviceClass.name}"))
+            // Android may refuse to start the engine's process, as MIUI does for an
+            // app in the background. A RemoteException ends every call the way a
+            // dead process ends it.
+            deferred.completeExceptionally(RemoteException("Cannot bind ${serviceClass.name}"))
         }
     }
 

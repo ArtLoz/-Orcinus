@@ -337,15 +337,23 @@ class AppContainer(context: Context) : AboutViewModelFactory {
         }
     }
 
-    /**
-     * Starts the engine as soon as the process does: binding the service starts
-     * the :slicer process, which loads OrcaSlicer's profiles. The app shell
-     * calls [startEngine] again when it composes; a started engine returns at once.
-     */
     /** Firebase Analytics and Crashlytics, off in Stealth mode as every other online request. */
     val telemetry: Telemetry = Telemetry.start(applicationContext)
 
+    /** Whether [startEngineEarly] ran; main thread only. */
+    private var engineStarted = false
+
+    /**
+     * Starts the engine and the work that follows the plate, once per process:
+     * binding the service starts the :slicer process, which loads OrcaSlicer's
+     * profiles. The window calls it as it is created, so a process Android
+     * starts in the background for a scheduled job leaves the engine alone. The
+     * app shell calls [startEngine] again when it composes; a started engine
+     * returns at once.
+     */
     fun startEngineEarly() {
+        if (engineStarted) return
+        engineStarted = true
         applicationScope.launch { startEngine() }
         telemetry.follow(
             appPreferences.values.map { values -> if (values.isEmpty()) null else !AppConfigKeys.bool(values[AppConfigKeys.STEALTH_MODE].orEmpty()) },

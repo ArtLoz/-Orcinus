@@ -23,8 +23,10 @@ keep upstream OrcaSlicer an implementation detail of the native adapter.
 
 The app starts around one long step: the engine loads OrcaSlicer's profiles
 (`PresetBundle::load_presets`), which takes seconds on a phone. Three things
-keep the first screen quick: the engine starts with the process, not with the
-first composition (`OrcinusApplication`); the vendor bundles are installed from
+keep the first screen quick: the engine starts as the window is created, not
+with the first composition (`MainActivity`; not in `OrcinusApplication`, since
+Android also starts the process in the background for scheduled jobs, where
+MIUI refuses to start `:slicer`); the vendor bundles are installed from
 the resources only when they are missing or older, as the desktop updater's
 version rule says, instead of copying the filament library's 482 files at every
 start; and the 3D view draws the plate of the last run from `PlateCache` while
