@@ -1,0 +1,8 @@
+<en-US>
+Fixed a crash on some phones, such as Xiaomi, when Android started the app in the background.
+The slicing engine now starts only when you open the app, not with every background task, which saves battery.
+</en-US>
+<ru-RU>
+Исправлен вылет на некоторых телефонах, например Xiaomi, когда Android запускал приложение в фоне.
+Движок нарезки теперь запускается только при открытии приложения, а не при каждой фоновой задаче, что бережёт батарею.
+</ru-RU>
